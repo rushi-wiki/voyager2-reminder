@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+sqlalchemy
+python-dotenv
+apscheduler
+email-validator
+aiofiles
+requests
