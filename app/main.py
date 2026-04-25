@@ -38,12 +38,6 @@ def register(user: UserIn):
     db.refresh(new_user)
     return {"message": "User registered", "user": user}
 
-@app.get("/users")
-def get_users():
-    db: Session = database.SessionLocal()
-    users = db.query(models.User).all()
-    return {"users": users}
-
 @app.delete("/users/{user_id}")
 def delete_user(user_id: int):
     db: Session = database.SessionLocal()
