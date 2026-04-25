@@ -97,6 +97,47 @@ def create_html_template(unit, distance_km):
     """
     return html_template
 
+def send_verification_email(to_email, verify_url):
+    """Send a confirmation email with a one-click verify link."""
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Confirm your Voyager 2 subscription"
+    msg["From"] = FROM_EMAIL
+    msg["To"] = to_email
+
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0a0a; color: #fff; margin: 0; padding: 40px 20px;">
+        <div style="max-width: 480px; margin: 0 auto; background: rgba(255,255,255,0.05); border-radius: 16px; padding: 40px 30px; text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 10px;">🚀</div>
+            <h1 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 300; letter-spacing: 1px;">Confirm your subscription</h1>
+            <p style="font-size: 15px; opacity: 0.85; line-height: 1.6;">
+                Click below to confirm you want Voyager 2 distance updates.
+                You won't get any further emails until you do.
+            </p>
+            <p style="margin-top: 28px;">
+                <a href="{verify_url}" style="display: inline-block; background: linear-gradient(45deg, #667eea, #764ba2); color: #fff; padding: 12px 28px; border-radius: 999px; text-decoration: none; font-weight: 600;">Confirm subscription</a>
+            </p>
+            <p style="font-size: 12px; opacity: 0.5; margin-top: 32px;">If you didn't sign up, just ignore this email.</p>
+        </div>
+    </body>
+    </html>
+    """
+    text = (
+        f"Confirm your Voyager 2 subscription by opening this link:\n\n"
+        f"{verify_url}\n\n"
+        f"If you didn't sign up, ignore this email."
+    )
+
+    msg.attach(MIMEText(text, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASS)
+        server.send_message(msg)
+
+
 def send_email(to_email, subject, unit=None, distance_km=None):
     """Send an HTML email with a beautiful template"""
     msg = MIMEMultipart("alternative")
