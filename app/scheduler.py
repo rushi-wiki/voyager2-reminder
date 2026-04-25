@@ -16,7 +16,7 @@ def check_and_notify():
     db = SessionLocal()
     current_distance = get_voyager2_distance_from_earth()
 
-    users = db.query(User).all()
+    users = db.query(User).filter_by(verified=True).all()
     for user in users:
         unit_km = DISTANCE_UNITS.get(user.unit)
         if not unit_km:
