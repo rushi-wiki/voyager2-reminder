@@ -2,7 +2,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from .distance_fetcher import get_voyager2_distance_from_earth
 from .database import SessionLocal
 from .models import User
-from .emailer import send_email
+from .emailer import send_email, unsubscribe_url_for
 
 DISTANCE_UNITS = {
     "light_second": 299792.458,
@@ -27,7 +27,9 @@ def check_and_notify():
                 user.email,
                 f"Voyager 2 moved {user.unit.replace('_', ' ')}",
                 unit=user.unit,
-                distance_km=current_distance
+                distance_km=current_distance,
+                previous_distance_km=user.last_notified_distance,
+                unsubscribe_url=unsubscribe_url_for(user),
             )
             user.last_notified_distance = current_distance
 

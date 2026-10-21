@@ -21,6 +21,8 @@ A FastAPI-based web service that sends email notifications when NASA's Voyager 2
 
 ### Notifications
 - `POST /users/{user_id}/notify` - Send notification to user
+- `GET /unsubscribe?token=...` - Unsubscribe confirmation page (linked from every update email)
+- `POST /unsubscribe?token=...` - Unsubscribe; also handles one-click requests from mail clients
 
 ### Scheduler
 - `GET /jobs` - Get scheduled jobs information
