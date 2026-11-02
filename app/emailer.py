@@ -127,9 +127,9 @@ def _dsn_line(name, contact):
 
 def _stat(value, label, accent):
     return f"""
-                    <td width="33%" valign="top" style="padding:14px 8px;text-align:center;">
-                        <div style="font-size:21px;line-height:26px;font-weight:bold;color:{accent};">{escape(value)}</div>
-                        <div style="font-size:12px;line-height:16px;color:{SOFT};padding-top:3px;">{escape(label)}</div>
+                    <td width="33%" valign="top" style="padding:10px 6px;text-align:center;">
+                        <div style="font-size:18px;line-height:22px;font-weight:bold;color:{accent};">{escape(value)}</div>
+                        <div style="font-size:11px;line-height:14px;color:{SOFT};padding-top:2px;">{escape(label)}</div>
                     </td>"""
 
 def _progress(signal_s, accent):
@@ -145,13 +145,13 @@ def _progress(signal_s, accent):
     empty = f'<td width="{100 - filled}%" bgcolor="{LINE}" style="background-color:{LINE};font-size:0;line-height:0;">&nbsp;</td>'
     return f"""
         <tr>
-            <td style="padding:6px 30px 24px 30px;">
+            <td style="padding:0 22px 16px 22px;">
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-                    <td style="font-size:13px;color:{SOFT};padding-bottom:7px;">The road to {label} from Earth</td>
-                    <td align="right" style="font-size:13px;font-weight:bold;color:{accent};padding-bottom:7px;">{percent:.1f}%</td>
+                    <td style="font-size:12px;color:{SOFT};padding-bottom:5px;">The road to {label} from Earth</td>
+                    <td align="right" style="font-size:12px;font-weight:bold;color:{accent};padding-bottom:5px;">{percent:.1f}%</td>
                 </tr></table>
-                <table role="presentation" width="100%" height="8" cellpadding="0" cellspacing="0" border="0" style="height:8px;"><tr>
-                    <td width="{filled}%" bgcolor="{accent}" style="background-color:{accent};font-size:0;line-height:0;height:8px;">&nbsp;</td>{empty}
+                <table role="presentation" width="100%" height="6" cellpadding="0" cellspacing="0" border="0" style="height:6px;"><tr>
+                    <td width="{filled}%" bgcolor="{accent}" style="background-color:{accent};font-size:0;line-height:0;height:6px;">&nbsp;</td>{empty}
                 </tr></table>
             </td>
         </tr>"""
@@ -159,22 +159,22 @@ def _progress(signal_s, accent):
 def _row(label, text, accent):
     return f"""
         <tr>
-            <td style="padding:13px 30px;border-top:1px solid {LINE};font-size:14px;line-height:22px;color:{SOFT};"><span style="color:{accent};font-weight:bold;">{escape(label)}</span><br>{escape(text)}</td>
+            <td style="padding:9px 22px;border-top:1px solid {LINE};font-size:13px;line-height:19px;color:{SOFT};"><span style="color:{accent};font-weight:bold;">{escape(label)}</span><br>{escape(text)}</td>
         </tr>"""
 
 def _postcard(card, accent):
     return f"""
         <tr>
-            <td style="padding:8px 30px 26px 30px;">
+            <td style="padding:0 22px 16px 22px;">
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{PANEL}" style="background-color:{PANEL};border-radius:10px;">
                 <tr><td style="padding:0;">
-                    <img src="cid:postcard" width="500" alt="{escape(card['alt'])}" style="display:block;width:100%;max-width:500px;height:auto;border:0;border-radius:10px 10px 0 0;">
+                    <img src="cid:postcard" width="516" alt="{escape(card['alt'])}" style="display:block;width:100%;max-width:516px;height:auto;border:0;border-radius:10px 10px 0 0;">
                 </td></tr>
-                <tr><td style="padding:16px 18px 18px 18px;">
-                    <div style="font-size:12px;color:{accent};padding-bottom:5px;">From the Voyager archive</div>
-                    <div style="font-family:Georgia,'Times New Roman',serif;font-size:20px;line-height:26px;color:{TEXT};padding-bottom:7px;">{escape(card['title'])}</div>
-                    <div style="font-size:14px;line-height:22px;color:{SOFT};">{escape(card['story'])}</div>
-                    <div style="font-size:11px;color:{FAINT};padding-top:9px;">Image: NASA/JPL</div>
+                <tr><td style="padding:11px 14px 13px 14px;">
+                    <div style="font-size:11px;color:{accent};padding-bottom:3px;">From the Voyager archive</div>
+                    <div style="font-family:Georgia,'Times New Roman',serif;font-size:17px;line-height:22px;color:{TEXT};padding-bottom:4px;">{escape(card['title'])}</div>
+                    <div style="font-size:13px;line-height:19px;color:{SOFT};">{escape(card['story'])}</div>
+                    <div style="font-size:11px;color:{FAINT};padding-top:6px;">Image: NASA/JPL</div>
                 </td></tr>
                 </table>
             </td>
@@ -189,7 +189,7 @@ def _footer(next_text, unsubscribe_url):
         )
     return f"""
         <tr>
-            <td style="padding:18px 30px 28px 30px;border-top:1px solid {LINE};color:{FAINT};font-size:12px;line-height:18px;">
+            <td style="padding:12px 22px 18px 22px;border-top:1px solid {LINE};color:{FAINT};font-size:11px;line-height:16px;">
                 {escape(next_text)}<br>
                 Live data from NASA JPL Horizons and Deep Space Network Now.{unsubscribe}
             </td>
@@ -250,7 +250,7 @@ def build_update(spacecraft, unit, position, previous_sun_km=None, twin_name=Non
     if light_days:
         badge = f"""
         <tr>
-            <td style="padding:22px 30px 0 30px;font-size:13px;font-weight:bold;color:{accent};">Milestone reached</td>
+            <td style="padding:16px 22px 0 22px;font-size:12px;font-weight:bold;color:{accent};">Milestone reached</td>
         </tr>"""
 
     html = f"""<!DOCTYPE html>
@@ -264,7 +264,7 @@ def build_update(spacecraft, unit, position, previous_sun_km=None, twin_name=Non
 <body style="margin:0;padding:0;background-color:{BACKGROUND};">
     {_preheader(f"Its signal takes {signal} to reach Earth. This time: {card['title']}.")}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{BACKGROUND}" style="background-color:{BACKGROUND};">
-    <tr><td align="center" style="padding:20px 10px;">
+    <tr><td align="center" style="padding:12px 6px;">
     <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" bgcolor="{CARD}" style="width:100%;max-width:560px;background-color:{CARD};border-radius:14px;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:{TEXT};">
         <tr>
             <td style="padding:0;">
@@ -272,19 +272,19 @@ def build_update(spacecraft, unit, position, previous_sun_km=None, twin_name=Non
             </td>
         </tr>{badge}
         <tr>
-            <td style="padding:{'6px' if light_days else '24px'} 30px 0 30px;color:{accent};font-size:14px;font-weight:bold;">{escape(name)} &middot; <span style="color:{SOFT};font-weight:normal;">{escape(unit_label.capitalize())} {count:,} from the Sun</span></td>
+            <td style="padding:{'4px' if light_days else '16px'} 22px 0 22px;color:{accent};font-size:13px;font-weight:bold;">{escape(name)} &middot; <span style="color:{SOFT};font-weight:normal;">{escape(unit_label.capitalize())} {count:,} from the Sun</span></td>
         </tr>
         <tr>
-            <td style="padding:8px 30px 0 30px;font-family:Consolas,Menlo,'Courier New',monospace;font-size:42px;line-height:50px;font-weight:bold;color:{TEXT};">{signal}</td>
+            <td style="padding:4px 22px 0 22px;font-family:Consolas,Menlo,'Courier New',monospace;font-size:34px;line-height:40px;font-weight:bold;color:{TEXT};">{signal}</td>
         </tr>
         <tr>
-            <td style="padding:0 30px 16px 30px;color:{SOFT};font-size:14px;">for its signal to reach Earth</td>
+            <td style="padding:0 22px 10px 22px;color:{SOFT};font-size:13px;">for its signal to reach Earth</td>
         </tr>
         <tr>
-            <td style="padding:0 30px 20px 30px;font-family:Georgia,'Times New Roman',serif;font-size:18px;line-height:28px;color:{TEXT};">{escape(lead)}</td>
+            <td style="padding:0 22px 14px 22px;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:22px;color:{TEXT};">{escape(lead)}</td>
         </tr>
         <tr>
-            <td style="padding:0 30px 18px 30px;">
+            <td style="padding:0 22px 12px 22px;">
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{PANEL}" style="background-color:{PANEL};border-radius:10px;"><tr>{_stat(f"{au:.1f}", "AU from the Sun", accent)}{_stat(f"{billion_km:.1f}", "billion km from Earth", accent)}{_stat(f"{years}y {months}m", "in flight", accent)}
                 </tr></table>
             </td>
