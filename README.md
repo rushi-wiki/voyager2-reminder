@@ -1,12 +1,14 @@
 # Voyager 2 Reminder 🚀
 
-A FastAPI-based web service that sends email notifications when NASA's Voyager 2 spacecraft moves specific distances from Earth. Users can register with their preferred distance units (light-seconds, light-minutes, or light-hours) and receive automated notifications.
+A FastAPI-based web service that emails you as NASA's Voyager 1 and Voyager 2 travel farther from the Sun. Users register with their preferred distance unit (light-seconds, light-minutes, or light-hours), and every update also shows how long each spacecraft's signal takes to reach Earth.
+
+Updates are triggered by distance from the Sun, which only ever grows. Distance from Earth rises and falls with Earth's orbit, so it would stall the emails for months each year. It is still used for the signal time in each email, and for a one-off email whenever a spacecraft passes a new light-day from Earth.
 
 ## Features
 
-- 📧 **Email Notifications**: Automated email alerts when Voyager 2 moves
+- 📧 **Email Notifications**: Automated email alerts for Voyager 1 and Voyager 2
 - 📏 **Multiple Distance Units**: Choose from light-seconds, light-minutes, or light-hours  
-- 👥 **User Management**: Register, view, and delete users
+- 📡 **Live Contact**: Shows which Deep Space Network dish is receiving the spacecraft
 - ⏰ **Scheduled Jobs**: Background scheduler for automated notifications
 - 🐋 **Docker Support**: Easy deployment with Docker and Docker Compose
 - ☁️ **Cloud Ready**: Configured for Fly.io deployment
@@ -15,12 +17,9 @@ A FastAPI-based web service that sends email notifications when NASA's Voyager 2
 
 ### User Management
 - `POST /register` - Register a new user
-- `GET /users` - Get all registered users
-- `GET /users/{user_id}` - Get user by ID
-- `DELETE /users/{user_id}` - Delete a user
+- `GET /verify?token=...` - Confirm a registration from the emailed link
 
 ### Notifications
-- `POST /users/{user_id}/notify` - Send notification to user
 - `GET /unsubscribe?token=...` - Unsubscribe confirmation page (linked from every update email)
 - `POST /unsubscribe?token=...` - Unsubscribe; also handles one-click requests from mail clients
 
@@ -111,18 +110,8 @@ curl -X POST "http://localhost:8080/register" \
      -H "Content-Type: application/json" \
      -d '{
        "email": "user@example.com",
-       "unit": "light_second"
+       "unit": "light_minute"
      }'
-```
-
-### Get All Users
-```bash
-curl -X GET "http://localhost:8080/users"
-```
-
-### Send Notification
-```bash
-curl -X POST "http://localhost:8080/users/1/notify"
 ```
 
 ## Distance Units
@@ -176,7 +165,7 @@ voyager2-reminder/
 │   ├── database.py          # Database configuration
 │   ├── scheduler.py         # Background job scheduler
 │   ├── emailer.py           # Email notification logic
-│   └── distance_fetcher.py  # Voyager 2 distance API
+│   └── distance_fetcher.py  # JPL Horizons and DSN lookups
 ├── data/
 │   └── users.db             # SQLite database
 ├── requirements.txt         # Python dependencies

@@ -8,16 +8,13 @@ from . import models, database
 from . import scheduler
 from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
-from .distance_fetcher import get_voyager2_distance_from_earth
-from .emailer import (
-    APP_BASE_URL,
-    send_email,
-    send_verification_email,
-    unsubscribe_url_for,
-)
+from .emailer import APP_BASE_URL, send_verification_email
 
 database.migrate()
 models.Base.metadata.create_all(bind=database.engine)
+_startup_db = database.SessionLocal()
+models.backfill_subscriptions(_startup_db)
+_startup_db.close()
 
 app = FastAPI()
 scheduler.start()
@@ -72,12 +69,13 @@ def verify(token: str):
         )
     user.verified = True
     user.verify_token = None
+    models.subscribe_to_all(user)
     db.commit()
     return HTMLResponse(
         f"""<html><body style="font-family:sans-serif;text-align:center;padding:60px 20px;background:#0a0a0a;color:#fff;">
         <div style="font-size:60px">🚀</div>
         <h1 style="font-weight:300">You're confirmed</h1>
-        <p>You'll get an email each time Voyager 2 moves another {user.unit.replace('_', ' ')}.</p>
+        <p>You'll get an email each time Voyager 1 or Voyager 2 moves another {user.unit.replace('_', ' ')}.</p>
         </body></html>"""
     )
 
@@ -101,7 +99,7 @@ def unsubscribe_page(token: str):
         return _page("Already unsubscribed", "<p>This address isn't subscribed anymore.</p>")
     return _page(
         "Unsubscribe?",
-        f"""<p>Stop Voyager 2 updates to {escape(user.email)}?</p>
+        f"""<p>Stop Voyager updates to {escape(user.email)}?</p>
         <form method="post" action="/unsubscribe?token={token}">
             <button type="submit" style="padding:12px 28px;border:0;border-radius:999px;background:#667eea;color:#fff;font-size:16px;cursor:pointer;">Unsubscribe</button>
         </form>""",
@@ -115,43 +113,7 @@ def unsubscribe(token: str):
     if user:
         db.delete(user)
         db.commit()
-    return _page("You're unsubscribed", "<p>You won't get any more Voyager 2 emails. Safe travels!</p>")
-
-@app.delete("/users/{user_id}")
-def delete_user(user_id: int):
-    db: Session = database.SessionLocal()
-    user = db.query(models.User).filter_by(id=user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    db.delete(user)
-    db.commit()
-    return {"message": "User deleted"}
-
-@app.get("/users/{user_id}")
-def get_user(user_id: int):
-    db: Session = database.SessionLocal()
-    user = db.query(models.User).filter_by(id=user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return {"user": user}
-
-@app.post("/users/{user_id}/notify")
-def notify_user(user_id: int):
-    db: Session = database.SessionLocal()
-    user = db.query(models.User).filter_by(id=user_id).first()
-    current_distance = get_voyager2_distance_from_earth()
-    print(f"Current distance: {current_distance}")
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    send_email(
-        user.email, 
-        f"Voyager 2 moved {user.unit.replace('_', ' ')}", 
-        unit=user.unit,
-        distance_km=current_distance,
-        previous_distance_km=user.last_notified_distance,
-        unsubscribe_url=unsubscribe_url_for(user),
-    )
-    return {"message": "User notified"}
+    return _page("You're unsubscribed", "<p>You won't get any more Voyager emails. Safe travels!</p>")
 
 @app.get("/jobs")
 def get_jobs():

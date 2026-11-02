@@ -1,40 +1,85 @@
 from apscheduler.schedulers.background import BackgroundScheduler
-from .distance_fetcher import get_voyager2_distance_from_earth
+from .distance_fetcher import SPACECRAFT, get_dsn_contact, get_position
 from .database import SessionLocal
-from .models import User
-from .emailer import send_email, unsubscribe_url_for
-
-DISTANCE_UNITS = {
-    "light_second": 299792.458,
-    "light_minute": 299792.458 * 60,
-    "light_hour": 299792.458 * 3600,
-}
+from .models import Subscription, User
+from .emailer import DISTANCE_UNITS, LIGHT_DAY_KM, build_update, send_update, unsubscribe_url_for
 
 scheduler = BackgroundScheduler()
 
+def _whole_units(distance_km, unit_km):
+    return int(distance_km // unit_km)
+
+def _light_day_reached(position, subscription):
+    """The new light-day count, the first time Earth distance passes it.
+
+    Earth distance dips for months each year as Earth's orbit catches up with
+    the spacecraft, so it is compared with the farthest distance seen. The
+    first check only records a starting point, so nobody is told about a
+    milestone that was passed long ago.
+    """
+    farthest = subscription.farthest_earth_km
+    if not farthest:
+        return None
+    days = _whole_units(position["earth_km"], LIGHT_DAY_KM)
+    return days if days > _whole_units(farthest, LIGHT_DAY_KM) else None
+
 def check_and_notify():
     db = SessionLocal()
-    current_distance = get_voyager2_distance_from_earth()
+    try:
+        positions = {key: get_position(key) for key in SPACECRAFT}
+        for key, position in positions.items():
+            # Skip this round if JPL is unreachable; the next check catches up
+            if position is None:
+                continue
+            twin_key = next(k for k in SPACECRAFT if k != key)
+            contact = get_dsn_contact(key)
 
-    users = db.query(User).filter_by(verified=True).all()
-    for user in users:
-        unit_km = DISTANCE_UNITS.get(user.unit)
-        if not unit_km:
-            continue
-
-        if (current_distance - user.last_notified_distance) >= unit_km:
-            send_email(
-                user.email,
-                f"Voyager 2 moved {user.unit.replace('_', ' ')}",
-                unit=user.unit,
-                distance_km=current_distance,
-                previous_distance_km=user.last_notified_distance,
-                unsubscribe_url=unsubscribe_url_for(user),
+            subscriptions = (
+                db.query(Subscription)
+                .join(User)
+                .filter(User.verified == True, Subscription.spacecraft == key)
+                .all()
             )
-            user.last_notified_distance = current_distance
+            for subscription in subscriptions:
+                user = subscription.user
+                unit_km = DISTANCE_UNITS.get(user.unit)
+                if not unit_km:
+                    continue
 
-    db.commit()
-    db.close()
+                light_days = _light_day_reached(position, subscription)
+                crossed = (
+                    _whole_units(position["sun_km"], unit_km)
+                    > _whole_units(subscription.last_notified_km, unit_km)
+                )
+                if light_days or crossed:
+                    unsubscribe_url = unsubscribe_url_for(user)
+                    try:
+                        update = build_update(
+                            key,
+                            user.unit,
+                            position,
+                            previous_sun_km=subscription.last_notified_km,
+                            twin_name=SPACECRAFT[twin_key]["name"],
+                            twin_position=positions[twin_key],
+                            contact=contact,
+                            light_days=light_days,
+                            unsubscribe_url=unsubscribe_url,
+                        )
+                        send_update(user.email, update, unsubscribe_url)
+                    except Exception as e:
+                        # Leave this subscriber's state alone so the next check
+                        # retries, and carry on with everyone else.
+                        print(f"Sending to user {user.id} failed: {e}")
+                        continue
+                    subscription.last_notified_km = position["sun_km"]
+
+                subscription.farthest_earth_km = max(
+                    subscription.farthest_earth_km, position["earth_km"]
+                )
+                # Commit per subscriber so a later crash can't cause a repeat email
+                db.commit()
+    finally:
+        db.close()
 
 def start():
     scheduler.add_job(check_and_notify, 'interval', hours=4, id='voyager_check')

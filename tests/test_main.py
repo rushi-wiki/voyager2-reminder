@@ -1,157 +1,340 @@
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 import os
-import sys
+import tempfile
 
-# Add the app directory to the path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+import pytest
 
-from app.main import app
-from app import models, database
+_db_dir = tempfile.mkdtemp()
+os.environ["DATABASE_URL"] = f"sqlite:///{_db_dir}/test.db"
 
-# Create test database
-TEST_DATABASE_URL = "sqlite:///./test.db"
-test_engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+from fastapi.testclient import TestClient
 
-# Create test database tables
-models.Base.metadata.create_all(bind=test_engine)
+from app import database, distance_fetcher, emailer, main, models, scheduler
+from app.emailer import LIGHT_DAY_KM, LIGHT_SPEED_KM_S, build_update, send_update
+from app.postcards import POSTCARD_DIR, POSTCARDS, postcard_for
+from app.models import Subscription, User
 
-# Override the get_db dependency
-def override_get_db():
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
+client = TestClient(main.app)
 
-app.dependency_overrides[database.get_db] = override_get_db
+LIGHT_MINUTE_KM = LIGHT_SPEED_KM_S * 60
+JPEG_START = bytes([0xFF, 0xD8])
 
-client = TestClient(app)
+HORIZONS_TEXT = """
+$$SOE
+2461346.500000000 = A.D. 2026-Nov-02 00:00:00.0000 TDB
+ X = 1.0E+09 Y =-2.0E+10 Z = 1.5E+10
+ VX= 1.0E+01 VY= 2.0E+01 VZ= 3.0E+00
+ LT= 8.626E+04 RG= 2.586010322E+10 RR= 3.149873E+01
+$$EOE
+"""
+
+DSN_XML = """<dsn>
+<station name="gdscc" friendlyName="Goldstone"/>
+<dish name="DSS14"><downSignal active="true" dataRate="1000" spacecraft="MRO"/><target name="MRO"/></dish>
+<station name="mdscc" friendlyName="Madrid"/>
+<dish name="DSS63">
+  <downSignal active="false" dataRate="9" spacecraft="VGR2"/>
+  <downSignal active="true" dataRate="160" spacecraft="VGR1"/>
+  <target name="VGR1"/>
+</dish>
+</dsn>"""
+
+
+def position(sun_minutes, earth_km=None, earth_km_s=31.5):
+    return {
+        "earth_km": earth_km if earth_km is not None else LIGHT_DAY_KM * 0.5,
+        "earth_km_s": earth_km_s,
+        "sun_km": sun_minutes * LIGHT_MINUTE_KM,
+        "sun_km_s": 16.9,
+        "sun_x_km": -3.0e9,
+        "sun_y_km": -2.0e10,
+    }
+
 
 @pytest.fixture
-def test_user():
-    return {
-        "email": "test@example.com",
-        "unit": "light_second"
+def db(monkeypatch):
+    session = database.SessionLocal()
+    session.query(Subscription).delete()
+    session.query(User).delete()
+    session.commit()
+    monkeypatch.setattr(scheduler, "get_dsn_contact", lambda key: None)
+    yield session
+    session.close()
+
+
+@pytest.fixture
+def sent(monkeypatch):
+    emails = []
+    monkeypatch.setattr(
+        scheduler, "send_update", lambda to, update, url=None: emails.append((to, update))
+    )
+    return emails
+
+
+def add_user(db, email="a@example.com", unit="light_minute"):
+    user = User(email=email, unit=unit, verified=True)
+    models.subscribe_to_all(user)
+    db.add(user)
+    db.commit()
+    return user
+
+
+def run_check(monkeypatch, voyager_1, voyager_2=None):
+    positions = {"voyager_1": voyager_1, "voyager_2": voyager_2}
+    monkeypatch.setattr(scheduler, "get_position", lambda key: positions[key])
+    scheduler.check_and_notify()
+
+
+def test_parse_range():
+    assert distance_fetcher.parse_range(HORIZONS_TEXT) == (2.586010322e10, 31.49873, 1.0e9, -2.0e10)
+    assert distance_fetcher.parse_range("no table here") is None
+
+
+def test_parse_dsn_contact():
+    assert distance_fetcher.parse_dsn_contact(DSN_XML, "VGR1") == {
+        "station": "Madrid",
+        "dish": "DSS63",
+        "rate_bps": 160.0,
     }
+    # An inactive signal doesn't count as being heard
+    assert distance_fetcher.parse_dsn_contact(DSN_XML, "VGR2") is None
 
-def test_root_endpoints():
-    """Test that basic endpoints are accessible"""
-    response = client.get("/users")
-    assert response.status_code == 200
 
-def test_register_user(test_user):
-    """Test user registration"""
-    response = client.post("/register", json=test_user)
-    assert response.status_code == 200
-    assert "message" in response.json()
-    assert response.json()["message"] == "User registered"
+def test_emails_once_per_light_minute(db, sent, monkeypatch):
+    add_user(db)
+    run_check(monkeypatch, position(1432.5))
+    assert len(sent) == 1
+    assert "Voyager 1 passed light-minute 1,432" in sent[0][1]["subject"]
 
-def test_register_duplicate_user(test_user):
-    """Test that duplicate email registration fails"""
-    # Register user first time
-    client.post("/register", json=test_user)
-    
-    # Try to register same email again
-    response = client.post("/register", json=test_user)
+    run_check(monkeypatch, position(1432.9))
+    assert len(sent) == 1
+
+    run_check(monkeypatch, position(1433.1))
+    assert len(sent) == 2
+
+
+def test_keeps_emailing_while_earth_distance_shrinks(db, sent, monkeypatch):
+    add_user(db)
+    run_check(monkeypatch, position(100.5, earth_km=LIGHT_DAY_KM * 0.5))
+    run_check(monkeypatch, position(101.5, earth_km=LIGHT_DAY_KM * 0.49, earth_km_s=-8.2))
+    assert len(sent) == 2
+    assert "Earth is catching up" in sent[1][1]["html"]
+
+
+def test_light_day_email_is_sent_once_despite_earth_dip(db, sent, monkeypatch):
+    add_user(db)
+    run_check(monkeypatch, position(1432.1, earth_km=LIGHT_DAY_KM * 0.999))
+    assert len(sent) == 1
+
+    # Crossing sends a milestone even without a new light-minute
+    run_check(monkeypatch, position(1432.2, earth_km=LIGHT_DAY_KM * 1.0001))
+    assert len(sent) == 2
+    assert sent[1][1]["subject"] == "Voyager 1 is now one light-day from Earth"
+
+    # Dropping back under and crossing again isn't news
+    run_check(monkeypatch, position(1432.3, earth_km=LIGHT_DAY_KM * 0.9999))
+    run_check(monkeypatch, position(1432.4, earth_km=LIGHT_DAY_KM * 1.0002))
+    assert len(sent) == 2
+
+
+def test_first_check_does_not_announce_old_milestones(db, sent, monkeypatch):
+    add_user(db)
+    run_check(monkeypatch, position(1500.5, earth_km=LIGHT_DAY_KM * 1.2))
+    assert len(sent) == 1
+    assert "light-day" not in sent[0][1]["subject"]
+
+
+def test_tracks_each_spacecraft_separately(db, sent, monkeypatch):
+    add_user(db)
+    run_check(monkeypatch, position(1432.5), position(1200.5))
+    assert sorted(update["subject"].split(" passed")[0] for _, update in sent) == [
+        "Voyager 1",
+        "Voyager 2",
+    ]
+    twin_lines = [update["html"] for _, update in sent]
+    assert "Voyager 2&#x27;s signal takes" in twin_lines[0]
+
+
+def test_jpl_outage_sends_nothing_and_loses_nothing(db, sent, monkeypatch):
+    add_user(db)
+    run_check(monkeypatch, None)
+    assert sent == []
+    run_check(monkeypatch, position(1432.5))
+    assert len(sent) == 1
+
+
+def test_failed_send_is_retried_and_does_not_block_others(db, monkeypatch):
+    add_user(db, "bad@example.com")
+    add_user(db, "good@example.com")
+    delivered = []
+
+    def flaky(to, update, url=None):
+        if to == "bad@example.com" and not delivered.count("recovered"):
+            raise OSError("smtp down")
+        delivered.append(to)
+
+    monkeypatch.setattr(scheduler, "send_update", flaky)
+    run_check(monkeypatch, position(1432.5))
+    assert delivered == ["good@example.com"]
+
+    delivered.append("recovered")
+    run_check(monkeypatch, position(1432.6))
+    assert delivered == ["good@example.com", "recovered", "bad@example.com"]
+
+
+def test_unverified_users_get_nothing(db, sent, monkeypatch):
+    user = add_user(db)
+    user.verified = False
+    db.commit()
+    run_check(monkeypatch, position(1432.5))
+    assert sent == []
+
+
+def test_backfill_moves_existing_users_once(db):
+    old = User(email="old@example.com", unit="light_second", verified=True)
+    pending = User(email="pending@example.com", unit="light_second", verified=False)
+    db.add_all([old, pending])
+    db.commit()
+
+    models.backfill_subscriptions(db)
+    assert old.unit == "light_minute"
+    assert sorted(s.spacecraft for s in old.subscriptions) == ["voyager_1", "voyager_2"]
+    assert pending.unit == "light_second"
+    assert pending.subscriptions == []
+
+    # Someone choosing light seconds afterwards keeps that choice
+    old.unit = "light_second"
+    db.commit()
+    models.backfill_subscriptions(db)
+    assert old.unit == "light_second"
+    assert len(old.subscriptions) == 2
+
+
+def test_register_verify_and_unsubscribe(db, monkeypatch):
+    links = []
+    monkeypatch.setattr(main, "send_verification_email", lambda to, url: links.append(url))
+
+    response = client.post("/register", json={"email": "new@example.com", "unit": "light_minute"})
+    assert response.status_code == 202
+    token = links[0].split("token=")[1]
+    assert client.get(f"/verify?token={token}").status_code == 200
+
+    db.expire_all()
+    user = db.query(User).filter_by(email="new@example.com").one()
+    assert sorted(s.spacecraft for s in user.subscriptions) == ["voyager_1", "voyager_2"]
+
+    assert client.post(f"/unsubscribe?token={user.unsubscribe_token}").status_code == 200
+    db.expire_all()
+    assert db.query(User).filter_by(email="new@example.com").count() == 0
+    assert db.query(Subscription).count() == 0
+
+
+def test_register_rejects_bad_input(db):
+    response = client.post("/register", json={"email": "x@example.com", "unit": "parsec"})
     assert response.status_code == 400
-    assert "Email already registered" in response.json()["detail"]
 
-def test_register_invalid_unit():
-    """Test registration with invalid unit"""
-    invalid_user = {
-        "email": "test2@example.com",
-        "unit": "invalid_unit"
-    }
-    response = client.post("/register", json=invalid_user)
-    assert response.status_code == 400
-    assert "Invalid unit" in response.json()["detail"]
 
-def test_get_users():
-    """Test getting all users"""
-    response = client.get("/users")
-    assert response.status_code == 200
-    assert "users" in response.json()
+@pytest.mark.parametrize(
+    "method,path",
+    [("get", "/users/1"), ("delete", "/users/1"), ("post", "/users/1/notify")],
+)
+def test_user_id_endpoints_are_gone(db, method, path):
+    assert getattr(client, method)(path).status_code == 404
 
-def test_get_user_by_id():
-    """Test getting user by ID"""
-    # First register a user
-    test_user = {"email": "getuser@example.com", "unit": "light_minute"}
-    client.post("/register", json=test_user)
-    
-    # Get all users to find the ID
-    users_response = client.get("/users")
-    users = users_response.json()["users"]
-    
-    if users:
-        user_id = users[-1]["id"]  # Get the last user's ID
-        response = client.get(f"/users/{user_id}")
-        assert response.status_code == 200
-        assert "user" in response.json()
 
-def test_get_nonexistent_user():
-    """Test getting a user that doesn't exist"""
-    response = client.get("/users/99999")
-    assert response.status_code == 404
-    assert "User not found" in response.json()["detail"]
+def test_update_content(monkeypatch):
+    update = build_update(
+        "voyager_1",
+        "light_minute",
+        {
+            "earth_km": 86400 * LIGHT_SPEED_KM_S - 140 * LIGHT_SPEED_KM_S,
+            "earth_km_s": 31.5,
+            "sun_km": 1432.3 * LIGHT_MINUTE_KM,
+            "sun_km_s": 16.9,
+            "sun_x_km": -3.0e9,
+            "sun_y_km": -2.5e10,
+        },
+        previous_sun_km=1431.3 * LIGHT_MINUTE_KM,
+        twin_name="Voyager 2",
+        twin_position=position(1200, earth_km=72134 * LIGHT_SPEED_KM_S),
+        contact={"station": "Madrid", "dish": "DSS63", "rate_bps": 160.0},
+        unsubscribe_url="https://example.com/unsubscribe?token=abc",
+    )
+    assert update["subject"] == "Voyager 1 passed light-minute 1,432, signal now 23h 57m from Earth"
+    assert "23h 57m 40s" in update["html"]
+    assert "Only 2m 20s short of a full light-day" in update["html"]
+    assert "1 day 23 hours 55 minutes" in update["text"]
+    assert "16.9 from Voyager 1, 14.6 from Earth" in update["text"]
+    assert "18.0 million km" in update["text"]
+    assert "Madrid's DSS63 dish is receiving Voyager 1 at 160 bits per second" in update["text"]
+    assert "Voyager 2's signal takes 20h 02m 14s" in update["text"]
+    assert "Unsubscribe: https://example.com/unsubscribe?token=abc" in update["text"]
+    assert 'src="cid:map"' in update["html"]
+    assert 'src="cid:postcard"' in update["html"]
+    assert update["images"]["map"][:2] == JPEG_START
+    assert update["images"]["postcard"][:2] == JPEG_START
+    for unsupported in ("display:flex", "display:grid", "backdrop-filter", "animation"):
+        assert unsupported not in update["html"]
 
-def test_delete_user():
-    """Test deleting a user"""
-    # First register a user
-    test_user = {"email": "deleteuser@example.com", "unit": "light_hour"}
-    client.post("/register", json=test_user)
-    
-    # Get all users to find the ID
-    users_response = client.get("/users")
-    users = users_response.json()["users"]
-    
-    if users:
-        user_id = users[-1]["id"]  # Get the last user's ID
-        response = client.delete(f"/users/{user_id}")
-        assert response.status_code == 200
-        assert response.json()["message"] == "User deleted"
 
-def test_delete_nonexistent_user():
-    """Test deleting a user that doesn't exist"""
-    response = client.delete("/users/99999")
-    assert response.status_code == 404
-    assert "User not found" in response.json()["detail"]
+def test_every_postcard_has_its_image_and_text():
+    for cards in POSTCARDS.values():
+        for card in cards:
+            assert (POSTCARD_DIR / card["image"]).stat().st_size > 1000
+            assert card["alt"] and card["title"] and card["story"]
 
-def test_get_jobs():
-    """Test getting scheduled jobs"""
-    response = client.get("/jobs")
-    assert response.status_code == 200
-    assert "jobs" in response.json()
 
-def test_notify_user():
-    """Test sending notification to user"""
-    # First register a user
-    test_user = {"email": "notify@example.com", "unit": "light_second"}
-    client.post("/register", json=test_user)
-    
-    # Get all users to find the ID
-    users_response = client.get("/users")
-    users = users_response.json()["users"]
-    
-    if users:
-        user_id = users[-1]["id"]  # Get the last user's ID
-        response = client.post(f"/users/{user_id}/notify")
-        # Note: This might fail if email configuration is not set up
-        # In a real test environment, you'd mock the email service
-        assert response.status_code in [200, 500]  # Allow for email errors
+def test_postcards_change_every_update_and_milestones_use_the_first():
+    seen = {postcard_for("voyager_1", count)["image"] for count in range(6)}
+    assert len(seen) == len(POSTCARDS["voyager_1"])
+    assert postcard_for("voyager_1", 3, milestone=True)["image"] == "pale-blue-dot.jpg"
 
-def test_notify_nonexistent_user():
-    """Test sending notification to user that doesn't exist"""
-    response = client.post("/users/99999/notify")
-    assert response.status_code == 404
-    assert "User not found" in response.json()["detail"]
 
-# Cleanup after tests
-def pytest_sessionfinish(session, exitstatus):
-    """Cleanup test database after all tests"""
-    import os
-    if os.path.exists("test.db"):
-        os.remove("test.db") 
+def test_map_copes_with_any_relative_position():
+    for x, y in [(1e10, 0), (-1e10, 0), (0, 1e10), (0, -1e10)]:
+        data = build_update("voyager_2", "light_minute", dict(position(1200.5), sun_x_km=x, sun_y_km=y),
+                            twin_name="Voyager 1", twin_position=position(1432.5))["images"]["map"]
+        assert data[:2] == JPEG_START
+
+
+def test_milestone_wording(monkeypatch):
+    update = build_update("voyager_1", "light_minute", position(1441.5, earth_km=LIGHT_DAY_KM * 1.00001), light_days=1)
+    assert update["subject"] == "Voyager 1 is now one light-day from Earth"
+    assert "Milestone reached" in update["html"]
+    assert "No spacecraft has ever been this far" in update["html"]
+    assert "The Pale Blue Dot" in update["html"]
+
+
+def test_sent_message_carries_images_inline(monkeypatch):
+    captured = []
+
+    class FakeSMTP:
+        def __init__(self, host, port):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def starttls(self):
+            pass
+
+        def login(self, user, password):
+            pass
+
+        def send_message(self, msg):
+            captured.append(msg)
+
+    monkeypatch.setattr(emailer.smtplib, "SMTP", FakeSMTP)
+    update = build_update("voyager_1", "light_minute", position(1432.5), unsubscribe_url="https://example.com/u")
+    send_update("a@example.com", update, "https://example.com/u")
+
+    msg = captured[0]
+    assert msg.get_content_type() == "multipart/related"
+    assert msg["List-Unsubscribe"] == "<https://example.com/u>"
+    parts = msg.get_payload()
+    assert parts[0].get_content_type() == "multipart/alternative"
+    assert [p["Content-ID"] for p in parts[1:]] == ["<map>", "<postcard>"]
+    assert all(p.get_content_type() == "image/jpeg" for p in parts[1:])
+    assert all(p["Content-Disposition"].startswith("inline") for p in parts[1:])
