@@ -332,7 +332,7 @@ html:not(.js) .journey-open { display: none; }
 .journey-note { color: #9195ad; font-size: 12px; line-height: 16px; }
 .journey-stage { position: relative; flex: 1 1 auto; min-height: 0; }
 #journey canvas { display: block; position: absolute; inset: 0; width: 100%; height: 100%; }
-.journey-readout { position: absolute; top: 12px; right: 16px; text-align: right; pointer-events: none; text-shadow: 0 1px 4px #000; }
+.journey-readout { position: absolute; top: 10px; left: 16px; pointer-events: none; text-shadow: 0 1px 4px #000, 0 0 8px #070913; }
 #journey-date { font-size: 24px; line-height: 30px; font-family: Georgia, 'Times New Roman', serif; }
 #journey-caption { max-width: 300px; min-height: 40px; font-size: 14px; line-height: 20px; color: #c3c7dc; }
 .journey-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: #c3c7dc; }
@@ -528,10 +528,16 @@ function makeView() {
     const angle = Math.atan2(y, x) + rotate;
     return [radius * Math.cos(angle), -radius * Math.sin(angle)];
   };
-  const box = [[0, 0], ...ends.map(([x, y]) => unit(x, y))];
+  // Fit both whole paths and Neptune's orbit, so nothing ever leaves the screen
+  const neptune = Math.sqrt(30.1);
+  const box = [[-neptune, -neptune], [neptune, neptune]];
+  CRAFT.forEach(([key]) => {
+    const body = paths[key];
+    for (let i = 0; i < body.t.length && body.t[i] <= today; i++) box.push(unit(body.x[i], body.y[i]));
+  });
   const xs = box.map((b) => b[0]);
   const ys = box.map((b) => b[1]);
-  const margin = 58;
+  const margin = 44;
   const k = Math.min(
     (width - margin * 2) / (Math.max(...xs) - Math.min(...xs)),
     (height - margin * 2) / Math.max(Math.max(...ys) - Math.min(...ys), 1),
@@ -596,17 +602,19 @@ function draw() {
   c.fill();
 
   c.textAlign = 'left';
+  const heads = CRAFT.map(([key]) => positionAt(paths[key], day)).filter(Boolean).map((head) => place(...head));
   PLANETS.forEach(([name, , color, size]) => {
     const at = positionAt(paths[name], day);
     if (!at) return;
     const [x, y] = place(...at);
+    const crowded = heads.some(([hx, hy]) => Math.hypot(hx - x, hy - y) < 60);
     c.fillStyle = color;
     c.beginPath();
     c.arc(x, y, size, 0, Math.PI * 2);
     c.fill();
     c.fillStyle = 'rgba(222, 226, 245, 0.85)';
     c.font = '11px "Segoe UI", Roboto, Arial, sans-serif';
-    if (name !== 'Earth') c.fillText(name, x + size + 3, y + 4);
+    if (name !== 'Earth' && !crowded) c.fillText(name, x + size + 3, y + 4);
   });
 
   CRAFT.forEach(([key, name, color]) => {
