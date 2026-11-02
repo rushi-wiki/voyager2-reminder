@@ -610,3 +610,27 @@ def test_page_keeps_its_wide_screen_layout():
     assert "@media (min-width: 900px)" in site.STYLES
     assert '"intro signup" "content content"' in site.STYLES
     assert "minmax(0, 7fr) minmax(0, 5fr)" in site.STYLES
+
+
+def test_light_is_the_default_with_a_dark_switch(page_data):
+    html = client.get("/").text
+    assert "prefers-color-scheme" not in html
+    assert ':root[data-theme="dark"]' in html
+    assert 'id="theme-toggle"' in html
+
+
+def test_map_tile_keeps_one_size_when_the_journey_plays():
+    from app import site
+
+    assert "min-height: 330px" not in site.STYLES
+    assert ".map.playing { min" not in site.STYLES
+    assert "object-fit: contain" in site.STYLES
+
+
+def test_animation_uses_the_same_geometry_as_the_map_picture():
+    from app import site, visuals
+
+    assert f"const MAP_WIDTH = {visuals.WIDTH};" in site.SCRIPT
+    assert f"const MAP_HEIGHT = {visuals.HEIGHT};" in site.SCRIPT
+    assert f"const MAP_SUN_X = {visuals.SUN_X};" in site.SCRIPT
+    assert f"const MAP_PX_PER_SQRT_AU = {visuals.PX_PER_SQRT_AU};" in site.SCRIPT

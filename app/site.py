@@ -151,10 +151,12 @@ def _panel(key, content, position, snapshot, active):
 
     return f"""<div role="tabpanel" id="panel-{key}" aria-labelledby="tab-{key}" class="panel"{"" if active else " data-inactive"} data-craft="{css_name}">
   <figure class="tile map">
-    <button type="button" class="map-trigger" data-journey aria-label="Play the real journey of both Voyagers">
-      <img src="/images/map/{key}.jpg?v={version}" width="1120" height="620" alt="Map showing {escape(content['name'])} and its twin far beyond the planets, at {content['au']:.1f} AU from the Sun">
-      <span class="map-hint">Press the map to watch the journey</span>
-    </button>
+    <div class="map-stage">
+      <button type="button" class="map-trigger" data-journey aria-label="Play the real journey of both Voyagers">
+        <img src="/images/map/{key}.jpg?v={version}" width="1120" height="620" alt="Map showing {escape(content['name'])} and its twin far beyond the planets, at {content['au']:.1f} AU from the Sun">
+      </button>
+    </div>
+    <div class="map-band"><span class="map-hint">Press the map to watch the journey</span></div>
   </figure>
   <section class="tile readout">
     <p class="eyebrow"><strong>{escape(content['name'])}</strong> &middot; {escape(content['unit_label'].capitalize())} {content['count']:,} from the Sun</p>
@@ -209,7 +211,7 @@ def _tabs(snapshot):
 
 STYLES = """
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --background: #f3f4f9;
   --card: #ffffff;
   --panel: #eef0f8;
@@ -222,20 +224,19 @@ STYLES = """
   --button: #14172b;
   --button-text: #ffffff;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #05060e;
-    --card: #10132a;
-    --panel: #181c3a;
-    --line: #2a2f4f;
-    --text: #f2f3fa;
-    --soft: #c3c7dc;
-    --faint: #9195ad;
-    --voyager-1: #f4b860;
-    --voyager-2: #6fd3ff;
-    --button: #f2f3fa;
-    --button-text: #10132a;
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #05060e;
+  --card: #10132a;
+  --panel: #181c3a;
+  --line: #2a2f4f;
+  --text: #f2f3fa;
+  --soft: #c3c7dc;
+  --faint: #9195ad;
+  --voyager-1: #f4b860;
+  --voyager-2: #6fd3ff;
+  --button: #f2f3fa;
+  --button-text: #10132a;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--background); color: var(--text); font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
@@ -250,6 +251,11 @@ p, h1, h2, h3, figure { margin: 0; }
   grid-template-areas: "intro" "content" "signup";
 }
 .intro { grid-area: intro; }
+.title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.theme-toggle { flex: 0 0 auto; min-height: 34px; padding: 0 12px; font: inherit; font-size: 13px; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.theme-toggle:hover { background: var(--panel); }
+.theme-toggle:focus-visible { outline: 2px solid var(--voyager-2); outline-offset: 2px; }
+html:not(.js) .theme-toggle { display: none; }
 h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: normal; font-size: 28px; line-height: 34px; }
 .intro p { margin-top: 3px; color: var(--soft); font-size: 14px; line-height: 20px; }
 .signup-link { display: inline-block; margin-top: 4px; color: var(--text); font-size: 14px; line-height: 24px; }
@@ -285,7 +291,6 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: normal; font-s
 .panel[data-craft="voyager-2"] { --accent: var(--voyager-2); }
 .tile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; min-width: 0; }
 .map { background: #070913; border-color: #070913; }
-.map img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
 .readout { padding: 16px; display: flex; flex-direction: column; }
 .eyebrow { font-size: 13px; line-height: 18px; color: var(--soft); }
@@ -320,30 +325,34 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: normal; font-s
 .next { padding: 10px 0; font-size: 12px; line-height: 17px; color: var(--faint); }
 .unavailable { padding: 40px 16px; text-align: center; color: var(--soft); }
 
-.map { position: relative; }
-.map-trigger { display: block; width: 100%; height: 100%; padding: 0; background: none; border: 0; border-radius: inherit; cursor: pointer; }
+.map { display: flex; flex-direction: column; }
+/* The tile keeps one size in every state. A taller stage on narrow screens leaves room for the date. */
+.map-stage { position: relative; flex: 1 1 auto; aspect-ratio: 4 / 3; background: #070913; }
+.map-trigger { position: absolute; inset: 0; display: block; width: 100%; height: 100%; padding: 0; background: none; border: 0; cursor: pointer; }
 html:not(.js) .map-trigger { cursor: default; }
 .map-trigger:focus-visible { outline: 2px solid #6fd3ff; outline-offset: -3px; }
-.map-hint { position: absolute; top: 9px; left: 11px; font-size: 12px; line-height: 16px; color: #dfe3f5; text-shadow: 0 1px 3px #000; pointer-events: none; transition: opacity 0.4s ease; }
+.map-trigger img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.map-band { position: relative; flex: 0 0 46px; background: #070913; border-top: 1px solid #1c2040; }
+.map-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #dfe3f5; pointer-events: none; transition: opacity 0.6s ease; }
+html:not(.js) .map-band { display: none; }
 .map.playing .map-hint { opacity: 0; }
-html:not(.js) .map-hint { display: none; }
-.map { transition: min-height 0.7s ease; }
-.map.playing { min-height: 330px; }
-.journey { position: absolute; inset: 0; z-index: 1; color: #f2f3fa; background: #070913; opacity: 0; transition: opacity 0.7s ease; }
+.journey { position: absolute; inset: 0; z-index: 1; color: #f2f3fa; opacity: 0; transition: opacity 0.7s ease; }
 .journey.visible { opacity: 1; }
-@media (prefers-reduced-motion: reduce) {
-  .map, .journey, .map-hint { transition: none; }
-}
-.journey[hidden] { display: none; }
+.journey[hidden], .journey-controls[hidden] { display: none; }
 .journey canvas { display: block; position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; }
-.journey-readout { position: absolute; top: 8px; left: 12px; right: 12px; pointer-events: none; text-shadow: 0 1px 4px #000, 0 0 8px #070913; }
+.journey-readout { position: absolute; top: 8px; left: 12px; right: 12px; pointer-events: none; text-shadow: 0 1px 4px #000, 0 0 8px #070913; opacity: 0; transition: opacity 0.5s ease; }
+.journey-readout.shown { opacity: 1; }
 #journey-date { font-family: Georgia, 'Times New Roman', serif; font-size: 18px; line-height: 23px; }
-#journey-caption { max-width: 340px; font-size: 12px; line-height: 16px; color: #d4d8ea; }
-.journey-controls { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(7, 9, 19, 0.82); }
+#journey-caption { max-width: 360px; font-size: 12px; line-height: 16px; color: #d4d8ea; }
+.journey-controls { position: absolute; inset: 0; display: flex; align-items: center; gap: 8px; padding: 0 8px; opacity: 0; transition: opacity 0.6s ease; }
+.journey-controls.visible { opacity: 1; }
 .journey-controls input { flex: 1 1 auto; min-width: 0; height: 28px; accent-color: #f4b860; }
 .journey-button { flex: 0 0 auto; min-width: 40px; min-height: 32px; padding: 0 10px; font: inherit; font-size: 13px; color: #f2f3fa; background: #181c3a; border: 1px solid #2a2f4f; border-radius: 7px; cursor: pointer; }
 .journey-button:hover { background: #2a2f4f; }
 .journey-button:focus-visible, .journey-controls input:focus-visible { outline: 2px solid #6fd3ff; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .journey, .journey-readout, .journey-controls, .map-hint { transition: none; }
+}
 
 @media (min-width: 900px) {
   .page {
@@ -358,6 +367,7 @@ html:not(.js) .map-hint { display: none; }
   .toolbar { margin-bottom: 14px; }
   .tabs { flex: 0 0 360px; }
   .panel { gap: 14px; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); align-items: stretch; }
+  .map-stage { aspect-ratio: 1120 / 620; }
   .signal { font-size: 42px; line-height: 48px; }
   .progress { margin-top: auto; padding-top: 12px; }
   .story { flex-direction: row; }
@@ -460,32 +470,43 @@ if (latest) {
 }
 
 // Pressing the map plays the journey in its place. Its data only downloads then.
+// It draws with the map picture's exact geometry, so nothing moves or changes size:
+// it opens on today's positions, rewinds to 1977, then plays forward.
 const journey = document.getElementById('journey');
+const controls = document.getElementById('journey-controls');
+const readout = document.getElementById('journey-readout');
 const canvas = document.getElementById('journey-canvas');
 const scrub = document.getElementById('journey-scrub');
 const playButton = document.getElementById('journey-play');
+const dateText = document.getElementById('journey-date');
+const captionText = document.getElementById('journey-caption');
 const EPOCH = Date.UTC(1977, 7, 20);
 const DAY_MS = 86400000;
 const WARP_DAYS = (Date.UTC(1990, 5, 1) - EPOCH) / DAY_MS;
 const WARP_AT = 0.62; // The busy years of flybys get most of the running time
-const RUN_MS = 34000;
-const CONTROLS_HEIGHT = 44;
+const RUN_MS = 42000;
 const FADE_MS = 700;
-const SETTLE_MS = 350; // A moment on the first frame before anything moves
+const REWIND_MS = 1800;
+const CAPTION_HOLD_MS = 2600; // Long enough to read, even when events fall close together
+// The map picture's geometry, from visuals.py
+const MAP_WIDTH = 1120;
+const MAP_HEIGHT = 620;
+const MAP_SUN_X = 170;
+const MAP_PX_PER_SQRT_AU = 62;
 const dayOf = (year, month, day) => (Date.UTC(year, month - 1, day) - EPOCH) / DAY_MS;
 const EVENTS = [
-  [0, 'Voyager 2 launches first, on a slower route.'],
-  [dayOf(1977, 9, 5), 'Voyager 1 launches 16 days later, on a faster route.'],
-  [dayOf(1979, 3, 5), 'Voyager 1 flies past Jupiter, which swings it onward.'],
-  [dayOf(1979, 7, 9), 'Voyager 2 flies past Jupiter.'],
-  [dayOf(1980, 11, 12), "Voyager 1 flies past Saturn and turns up, out of the planets' plane."],
-  [dayOf(1981, 8, 25), 'Voyager 2 flies past Saturn, heading on to Uranus.'],
-  [dayOf(1986, 1, 24), 'Voyager 2 reaches Uranus, the first spacecraft ever to get there.'],
-  [dayOf(1989, 8, 25), 'Voyager 2 reaches Neptune. No spacecraft has been back to either planet.'],
-  [dayOf(1990, 2, 14), 'Voyager 1 looks back and takes the Pale Blue Dot photo.'],
-  [dayOf(2012, 8, 25), "Voyager 1 leaves the Sun's influence for interstellar space."],
-  [dayOf(2018, 11, 5), 'Voyager 2 follows it into interstellar space.'],
-  [dayOf(2026, 11, 18), 'Voyager 1 reaches one light-day from Earth.'],
+  [0, 'August 1977: Voyager 2 launches first, on a slower route.'],
+  [dayOf(1977, 9, 5), 'September 1977: Voyager 1 launches, on a faster route.'],
+  [dayOf(1979, 3, 5), 'March 1979: Voyager 1 flies past Jupiter, which swings it onward.'],
+  [dayOf(1979, 7, 9), 'July 1979: Voyager 2 flies past Jupiter.'],
+  [dayOf(1980, 11, 12), "November 1980: Voyager 1 flies past Saturn and turns up, out of the planets' plane."],
+  [dayOf(1981, 8, 25), 'August 1981: Voyager 2 flies past Saturn, heading on to Uranus.'],
+  [dayOf(1986, 1, 24), 'January 1986: Voyager 2 reaches Uranus, the first spacecraft ever to get there.'],
+  [dayOf(1989, 8, 25), 'August 1989: Voyager 2 reaches Neptune. No spacecraft has been back to either planet.'],
+  [dayOf(1990, 2, 14), 'February 1990: Voyager 1 looks back and takes the Pale Blue Dot photo.'],
+  [dayOf(2012, 8, 25), "August 2012: Voyager 1 leaves the Sun's influence for interstellar space."],
+  [dayOf(2018, 11, 5), 'November 2018: Voyager 2 follows it into interstellar space.'],
+  [dayOf(2026, 11, 18), 'November 2026: Voyager 1 reaches one light-day from Earth.'],
 ];
 const PLANETS = [
   ['Earth', 1, '#6fb7ff', 3], ['Jupiter', 5.2, '#e0b184', 5], ['Saturn', 9.6, '#e9d28f', 4.5],
@@ -493,8 +514,10 @@ const PLANETS = [
 ];
 const CRAFT = [['voyager_1', 'Voyager 1', '#f4b860'], ['voyager_2', 'Voyager 2', '#6fd3ff']];
 let paths = null;
-let progress = 0;
+let progress = 1;
 let playing = false;
+let rewinding = false;
+let rewindStart = 0;
 let lastFrame = 0;
 let view = null;
 let journeyMap = null;
@@ -502,9 +525,35 @@ let startTimer = null;
 let hideTimer = null;
 let loading = false;
 const todayDays = () => (Date.now() - EPOCH) / DAY_MS;
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 function dayAt(p) {
   if (p <= WARP_AT) return (p / WARP_AT) * WARP_DAYS;
   return WARP_DAYS + ((p - WARP_AT) / (1 - WARP_AT)) * (todayDays() - WARP_DAYS);
+}
+function progressAt(day) {
+  if (day <= WARP_DAYS) return (day / WARP_DAYS) * WARP_AT;
+  return WARP_AT + ((day - WARP_DAYS) / (todayDays() - WARP_DAYS)) * (1 - WARP_AT);
+}
+// Stop each caption replacing the last one before it can be read
+function captionAt(p) {
+  let shownFrom = -1;
+  let caption = '';
+  const hold = CAPTION_HOLD_MS / RUN_MS;
+  EVENTS.forEach(([day, text]) => {
+    const due = progressAt(day);
+    if (due > 1) return;
+    shownFrom = Math.max(due, shownFrom + hold);
+    if (shownFrom <= p) caption = text;
+  });
+  return caption;
+}
+// Months would flicker past, so the date moves in readable steps
+function dateLabelAt(p) {
+  if (p >= 1) return new Date().toLocaleDateString('en-GB', {month: 'long', year: 'numeric', timeZone: 'UTC'});
+  const date = new Date(EPOCH + dayAt(p) * DAY_MS);
+  const year = date.getUTCFullYear();
+  if (year < 1990) return `${date.getUTCMonth() < 6 ? 'January' : 'July'} ${year}`;
+  return String(year - year % 5);
 }
 function positionAt(body, day) {
   const t = body.t;
@@ -520,47 +569,33 @@ function positionAt(body, day) {
   return [body.x[low] + (body.x[high] - body.x[low]) * f, body.y[low] + (body.y[high] - body.y[low]) * f];
 }
 function makeView() {
-  const scale = Math.min(window.devicePixelRatio || 1, 2);
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
-  canvas.width = Math.round(width * scale);
-  canvas.height = Math.round(height * scale);
+  canvas.width = Math.round(width * pixelRatio);
+  canvas.height = Math.round(height * pixelRatio);
+  // The same turn as the picture: the two spacecraft either side of the horizontal
   const today = todayDays();
-  const ends = CRAFT.map(([key]) => positionAt(paths[key], today));
-  const angles = ends.map(([x, y]) => Math.atan2(y, x));
-  const gap = Math.atan2(Math.sin(angles[1] - angles[0]), Math.cos(angles[1] - angles[0]));
-  const middle = angles[0] + gap / 2;
-  // Point the spacecraft along the longer side of the screen
-  const rotate = (width >= height ? 0 : -Math.PI / 2) - middle;
-  const unit = (x, y) => {
-    const radius = Math.sqrt(Math.hypot(x, y));
-    const angle = Math.atan2(y, x) + rotate;
-    return [radius * Math.cos(angle), -radius * Math.sin(angle)];
-  };
-  // Fit both whole paths and Neptune's orbit, so nothing ever leaves the screen
-  const neptune = Math.sqrt(30.1);
-  const box = [[-neptune, -neptune], [neptune, neptune]];
-  CRAFT.forEach(([key]) => {
-    const body = paths[key];
-    for (let i = 0; i < body.t.length && body.t[i] <= today; i++) box.push(unit(body.x[i], body.y[i]));
+  const angles = CRAFT.map(([key]) => {
+    const [x, y] = positionAt(paths[key], today);
+    return Math.atan2(y, x);
   });
-  const xs = box.map((b) => b[0]);
-  const ys = box.map((b) => b[1]);
-  const margin = 26;
-  const k = Math.min(
-    (width - margin * 2) / (Math.max(...xs) - Math.min(...xs)),
-    (height - CONTROLS_HEIGHT - margin * 2) / Math.max(Math.max(...ys) - Math.min(...ys), 1),
-  );
-  const originX = (width - (Math.max(...xs) + Math.min(...xs)) * k) / 2;
-  const originY = (height - CONTROLS_HEIGHT - (Math.max(...ys) + Math.min(...ys)) * k) / 2;
+  const gap = Math.atan2(Math.sin(angles[1] - angles[0]), Math.cos(angles[1] - angles[0]));
+  const rotate = -(angles[0] + gap / 2);
+  // The picture is fitted inside the stage without cropping, so match that exactly
+  const s = Math.min(width / MAP_WIDTH, height / MAP_HEIGHT);
+  const originX = (width - MAP_WIDTH * s) / 2 + MAP_SUN_X * s;
+  const originY = height / 2;
+  const k = MAP_PX_PER_SQRT_AU * s;
   let seed = 7;
   const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const stars = Array.from({length: 170}, () => [random() * width, random() * height, random() * 1.1 + 0.3, random() * 0.5 + 0.2]);
   view = {
-    scale, width, height, k, originX, originY, stars,
+    pixelRatio, width, height, s, originX, originY, stars,
     place: (x, y) => {
-      const [ux, uy] = unit(x, y);
-      return [originX + ux * k, originY + uy * k];
+      const radius = Math.sqrt(Math.hypot(x, y)) * k;
+      const angle = Math.atan2(y, x) + rotate;
+      return [originX + radius * Math.cos(angle), originY - radius * Math.sin(angle)];
     },
     ring: (au) => Math.sqrt(au) * k,
   };
@@ -568,9 +603,10 @@ function makeView() {
 function draw() {
   if (!paths || !view) return;
   const c = canvas.getContext('2d');
-  const {scale, width, height, originX, originY, stars, place, ring} = view;
+  const {pixelRatio, width, height, s, originX, originY, stars, place, ring} = view;
   const day = dayAt(progress);
-  c.setTransform(scale, 0, 0, scale, 0, 0);
+  const small = Math.max(9, 21 * s);
+  c.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   c.fillStyle = '#070913';
   c.fillRect(0, 0, width, height);
   stars.forEach(([x, y, r, a]) => {
@@ -579,28 +615,27 @@ function draw() {
   });
 
   c.lineWidth = 1;
-  c.strokeStyle = 'rgba(190, 170, 228, 0.55)';
+  c.strokeStyle = 'rgba(190, 170, 228, 0.6)';
   c.setLineDash([5, 6]);
   c.beginPath();
   c.arc(originX, originY, ring(120), 0, Math.PI * 2);
   c.stroke();
   c.setLineDash([]);
-  c.font = '12px "Segoe UI", Roboto, Arial, sans-serif';
-  c.textAlign = 'center';
-  c.fillStyle = 'rgba(205, 188, 240, 0.9)';
-  const edge = place(...positionAt(paths.voyager_1, todayDays()).map((v, i, all) => v / Math.hypot(...all) * 120));
-  if (width >= 480) c.fillText("Edge of the Sun's influence", edge[0], Math.max(16, edge[1] - 14));
+  c.font = `${small}px "Segoe UI", Roboto, Arial, sans-serif`;
+  c.textAlign = 'right';
+  c.fillStyle = 'rgba(205, 188, 240, 0.95)';
+  c.fillText("Edge of the Sun's influence", originX + ring(120) - 10 * s, originY + small / 3);
 
   PLANETS.forEach(([, au]) => {
-    c.strokeStyle = 'rgba(134, 146, 196, 0.32)';
+    c.strokeStyle = 'rgba(134, 146, 196, 0.42)';
     c.beginPath();
     c.arc(originX, originY, ring(au), 0, Math.PI * 2);
     c.stroke();
   });
 
-  const glowSize = Math.min(30, ring(1) * 1.2);
+  const glowSize = 62 * s;
   const glow = c.createRadialGradient(originX, originY, 1, originX, originY, glowSize);
-  glow.addColorStop(0, 'rgba(255, 214, 140, 0.95)');
+  glow.addColorStop(0, 'rgba(255, 214, 140, 0.8)');
   glow.addColorStop(1, 'rgba(255, 190, 90, 0)');
   c.fillStyle = glow;
   c.beginPath();
@@ -608,7 +643,7 @@ function draw() {
   c.fill();
   c.fillStyle = '#fff1cf';
   c.beginPath();
-  c.arc(originX, originY, 4, 0, Math.PI * 2);
+  c.arc(originX, originY, Math.max(2.5, 8 * s), 0, Math.PI * 2);
   c.fill();
 
   c.textAlign = 'left';
@@ -617,14 +652,15 @@ function draw() {
     const at = positionAt(paths[name], day);
     if (!at) return;
     const [x, y] = place(...at);
-    const crowded = heads.some(([hx, hy]) => Math.hypot(hx - x, hy - y) < 60);
+    const crowded = heads.some(([hx, hy]) => Math.hypot(hx - x, hy - y) < 110 * s);
+    const dot = Math.max(2, size * s * 1.5);
     c.fillStyle = color;
     c.beginPath();
-    c.arc(x, y, size, 0, Math.PI * 2);
+    c.arc(x, y, dot, 0, Math.PI * 2);
     c.fill();
-    c.fillStyle = 'rgba(222, 226, 245, 0.85)';
-    c.font = '11px "Segoe UI", Roboto, Arial, sans-serif';
-    if (name !== 'Earth' && !crowded) c.fillText(name, x + size + 3, y + 4);
+    c.fillStyle = 'rgba(222, 226, 245, 0.88)';
+    c.font = `${small}px "Segoe UI", Roboto, Arial, sans-serif`;
+    if (name !== 'Earth' && !crowded) c.fillText(name, x + dot + 3, y + small / 3);
   });
 
   CRAFT.forEach(([key, name, color]) => {
@@ -632,7 +668,7 @@ function draw() {
     const head = positionAt(body, day);
     if (!head) return;
     c.strokeStyle = color;
-    c.lineWidth = 1.8;
+    c.lineWidth = Math.max(1.2, 3 * s);
     c.beginPath();
     let started = false;
     for (let i = 0; i < body.t.length && body.t[i] <= day; i++) {
@@ -643,35 +679,35 @@ function draw() {
     const [hx, hy] = place(...head);
     if (started) c.lineTo(hx, hy);
     c.stroke();
-    const halo = c.createRadialGradient(hx, hy, 1, hx, hy, 15);
+    const haloSize = Math.max(7, 26 * s);
+    const halo = c.createRadialGradient(hx, hy, 1, hx, hy, haloSize);
     halo.addColorStop(0, color);
     halo.addColorStop(1, 'rgba(0, 0, 0, 0)');
     c.fillStyle = halo;
     c.beginPath();
-    c.arc(hx, hy, 15, 0, Math.PI * 2);
+    c.arc(hx, hy, haloSize, 0, Math.PI * 2);
     c.fill();
     c.fillStyle = color;
     c.beginPath();
-    c.arc(hx, hy, 4, 0, Math.PI * 2);
+    c.arc(hx, hy, Math.max(2.5, 9 * s), 0, Math.PI * 2);
     c.fill();
     const au = Math.hypot(...head).toFixed(1);
-    c.font = '600 13px "Segoe UI", Roboto, Arial, sans-serif';
-    const onLeft = hx > width - 112;
-    c.textAlign = onLeft ? 'right' : 'left';
-    const labelX = hx + (onLeft ? -10 : 10);
-    const labelY = key === 'voyager_1' ? hy + 18 : hy - 16;
+    // Beside the dot, on the side away from the path it came along
+    const title = Math.max(10, 32 * s);
+    const detail = Math.max(9, 24 * s);
+    c.textAlign = 'right';
+    const labelX = hx - 18 * s;
+    const labelY = Math.min(hy + (key === 'voyager_1' ? 20 * s + title : -46 * s), height - detail - 4);
+    c.font = `600 ${title}px "Segoe UI", Roboto, Arial, sans-serif`;
     c.fillText(name, labelX, labelY);
-    c.font = '11px "Segoe UI", Roboto, Arial, sans-serif';
-    c.fillStyle = 'rgba(222, 226, 245, 0.85)';
-    c.fillText(`${au} AU`, labelX, labelY + 14);
+    c.font = `${detail}px "Segoe UI", Roboto, Arial, sans-serif`;
+    c.fillStyle = 'rgba(222, 226, 245, 0.88)';
+    c.fillText(`${au} AU`, labelX, labelY + detail + 1);
     c.textAlign = 'left';
   });
 
-  const date = new Date(EPOCH + day * DAY_MS);
-  document.getElementById('journey-date').textContent = date.toLocaleDateString('en-GB', {month: 'long', year: 'numeric', timeZone: 'UTC'});
-  let caption = '';
-  EVENTS.forEach(([eventDay, text]) => { if (eventDay <= day) caption = text; });
-  document.getElementById('journey-caption').textContent = caption;
+  dateText.textContent = dateLabelAt(progress);
+  captionText.textContent = captionAt(progress);
   scrub.value = Math.round(progress * 1000);
 }
 function setPlaying(value) {
@@ -684,12 +720,26 @@ function setPlaying(value) {
 }
 function frame(now) {
   if (!playing || !journeyMap) return;
-  progress = Math.min(1, progress + (now - lastFrame) / RUN_MS);
+  if (rewinding) {
+    const t = Math.min(1, (now - rewindStart) / REWIND_MS);
+    progress = 1 - t * t * (3 - 2 * t);
+    if (t >= 1) {
+      rewinding = false;
+      progress = 0;
+      readout.classList.add('shown');
+    }
+  } else {
+    progress = Math.min(1, progress + (now - lastFrame) / RUN_MS);
+  }
   lastFrame = now;
   draw();
-  if (progress >= 1) setPlaying(false); else requestAnimationFrame(frame);
+  if (progress >= 1 && !rewinding) setPlaying(false); else requestAnimationFrame(frame);
 }
-const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+function cancelStart() {
+  clearTimeout(startTimer);
+  startTimer = null;
+  rewinding = false;
+}
 async function openJourney(map) {
   if (loading || journeyMap === map) return;
   if (!paths) {
@@ -713,42 +763,56 @@ async function openJourney(map) {
   clearTimeout(hideTimer);
   journeyMap = map;
   map.classList.add('playing');
-  map.append(journey);
+  map.querySelector('.map-stage').append(journey);
+  map.querySelector('.map-band').append(controls);
   journey.hidden = false;
-  // Without motion, start at today's positions and let people drag through time
-  const stillOnly = reducedMotion();
-  progress = stillOnly ? 1 : 0;
+  controls.hidden = false;
+  // Start on today, which matches the picture underneath, so the fade shows no jump
+  progress = 1;
   makeView();
   draw();
-  void journey.offsetWidth; // Let the browser see the hidden state, so the fade runs
+  void journey.offsetWidth; // Let the browser see the hidden state, so the fades run
   journey.classList.add('visible');
+  controls.classList.add('visible');
   setPlaying(false);
-  if (!stillOnly) {
-    playButton.textContent = 'Pause';
-    startTimer = setTimeout(() => {
-      startTimer = null;
-      setPlaying(true);
-    }, FADE_MS + SETTLE_MS);
+  if (reducedMotion()) {
+    readout.classList.add('shown');
+    return;
   }
+  playButton.textContent = 'Pause';
+  startTimer = setTimeout(() => {
+    startTimer = null;
+    rewinding = true;
+    rewindStart = performance.now();
+    setPlaying(true);
+  }, FADE_MS);
 }
 window.stopJourney = function (immediately) {
   if (!journeyMap) return;
-  clearTimeout(startTimer);
-  startTimer = null;
+  cancelStart();
   setPlaying(false);
   journey.classList.remove('visible');
+  controls.classList.remove('visible');
+  readout.classList.remove('shown');
   journeyMap.classList.remove('playing');
   journeyMap = null;
   clearTimeout(hideTimer);
-  if (immediately || reducedMotion()) journey.hidden = true;
-  else hideTimer = setTimeout(() => { journey.hidden = true; }, FADE_MS);
+  const hide = () => {
+    journey.hidden = true;
+    controls.hidden = true;
+  };
+  if (immediately || reducedMotion()) hide();
+  else hideTimer = setTimeout(hide, FADE_MS);
 };
 function togglePlaying() {
-  // A press during the opening fade starts or pauses it right away
-  const waiting = startTimer !== null;
-  clearTimeout(startTimer);
-  startTimer = null;
-  if (waiting && progress === 0) return setPlaying(false);
+  const wasStarting = startTimer !== null || rewinding;
+  cancelStart();
+  readout.classList.add('shown');
+  if (wasStarting) {
+    // Pressing during the opening stops there, on whichever moment is showing
+    setPlaying(false);
+    return;
+  }
   if (playing) return setPlaying(false);
   if (progress >= 1) progress = 0;
   setPlaying(true);
@@ -767,19 +831,37 @@ document.addEventListener('keydown', (event) => {
 });
 playButton.addEventListener('click', togglePlaying);
 scrub.addEventListener('input', () => {
-  clearTimeout(startTimer);
-  startTimer = null;
+  cancelStart();
+  readout.classList.add('shown');
   progress = Number(scrub.value) / 1000;
   setPlaying(false);
   draw();
 });
-// Also keeps the drawing sharp and in proportion while the tile grows on phones
+// Keep the drawing sharp and lined up with the picture if the screen size changes
 new ResizeObserver(() => {
   if (journeyMap && paths) {
     makeView();
     draw();
   }
 }).observe(journey);
+
+// Light for everyone unless they choose dark, and remembered if they do
+const themeToggle = document.getElementById('theme-toggle');
+function showThemeLabel() {
+  themeToggle.textContent = document.documentElement.dataset.theme === 'dark' ? 'Light mode' : 'Dark mode';
+}
+themeToggle.addEventListener('click', () => {
+  const dark = document.documentElement.dataset.theme !== 'dark';
+  if (dark) document.documentElement.dataset.theme = 'dark';
+  else delete document.documentElement.dataset.theme;
+  try {
+    localStorage.setItem('theme', dark ? 'dark' : 'light');
+  } catch (error) {
+    // Private browsing can block this. The choice still lasts for this visit.
+  }
+  showThemeLabel();
+});
+showThemeLabel();
 
 const form = document.getElementById('subscribe');
 const message = document.getElementById('message');
@@ -826,12 +908,17 @@ def render_page():
 <title>Voyager, right now</title>
 <meta name="description" content="Where Voyager 1 and Voyager 2 are today, from live NASA data. Subscribe to get an email as they travel farther.">
 <style>{STYLES}</style>
-<script>document.documentElement.classList.add('js');</script>
+<script>
+document.documentElement.classList.add('js');
+try {{
+  if (localStorage.getItem('theme') === 'dark') document.documentElement.dataset.theme = 'dark';
+}} catch (error) {{}}
+</script>
 </head>
 <body>
 <main class="page">
 <header class="intro">
-<h1>Voyager, right now</h1>
+<div class="title-row"><h1>Voyager, right now</h1><button type="button" class="theme-toggle" id="theme-toggle">Dark mode</button></div>
 <p>The two farthest spacecraft ever launched are still talking to us.</p>
 <a class="signup-link" href="#subscribe">Get these updates by email</a>
 </header>
@@ -849,12 +936,12 @@ def render_page():
 </main>
 <div id="journey" class="journey" hidden>
 <canvas id="journey-canvas" role="img" aria-label="Animation of Voyager 1 and Voyager 2 travelling from Earth past the planets, from 1977 to today. Real paths and planet positions from NASA JPL, seen from above, with distances compressed."></canvas>
-<div class="journey-readout"><div id="journey-date"></div><div id="journey-caption" aria-live="polite"></div></div>
-<div class="journey-controls">
+<div class="journey-readout" id="journey-readout"><div id="journey-date"></div><div id="journey-caption" aria-live="polite"></div></div>
+</div>
+<div class="journey-controls" id="journey-controls" hidden>
 <button type="button" class="journey-button" id="journey-play">Play</button>
 <input type="range" id="journey-scrub" min="0" max="1000" value="0" aria-label="Move through time">
 <button type="button" class="journey-button" id="journey-close" aria-label="Back to today's map">&#10005;</button>
-</div>
 </div>
 <script id="latest-data" type="application/json">{latest}</script>
 <script>{SCRIPT}</script>
