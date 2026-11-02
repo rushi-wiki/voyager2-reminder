@@ -3,9 +3,11 @@ from datetime import date, datetime, timezone
 from email.mime.image import MIMEImage
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import make_msgid
 from html import escape
 from dotenv import load_dotenv
 import os
+import uuid
 
 from .distance_fetcher import SPACECRAFT
 from .postcards import POSTCARD_DIR, postcard_for
@@ -258,10 +260,11 @@ def build_update(spacecraft, unit, position, previous_sun_km=None, twin_name=Non
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="color-scheme" content="dark">
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
     <title>{escape(subject)}</title>
 </head>
-<body style="margin:0;padding:0;background-color:{BACKGROUND};">
+<body bgcolor="{BACKGROUND}" style="margin:0;padding:0;background-color:{BACKGROUND};">
     {_preheader(f"Its signal takes {signal} to reach Earth. This time: {card['title']}.")}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{BACKGROUND}" style="background-color:{BACKGROUND};">
     <tr><td align="center" style="padding:12px 6px;">
@@ -382,6 +385,10 @@ def send_update(to_email, update, unsubscribe_url=None):
     msg["Subject"] = update["subject"]
     msg["From"] = FROM_EMAIL
     msg["To"] = to_email
+    # Each update stands alone. Unique IDs, with no reply headers, discourage
+    # mail clients from stacking updates into one conversation.
+    msg["Message-ID"] = make_msgid(domain=(FROM_EMAIL or "").rpartition("@")[2] or None)
+    msg["X-Entity-Ref-ID"] = str(uuid.uuid4())
 
     body = MIMEMultipart("alternative")
     body.attach(MIMEText(update["text"], "plain"))

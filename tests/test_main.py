@@ -338,3 +338,45 @@ def test_sent_message_carries_images_inline(monkeypatch):
     assert [p["Content-ID"] for p in parts[1:]] == ["<map>", "<postcard>"]
     assert all(p.get_content_type() == "image/jpeg" for p in parts[1:])
     assert all(p["Content-Disposition"].startswith("inline") for p in parts[1:])
+
+
+def test_each_update_gets_its_own_identity(monkeypatch):
+    captured = []
+
+    class FakeSMTP:
+        def __init__(self, host, port):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def starttls(self):
+            pass
+
+        def login(self, user, password):
+            pass
+
+        def send_message(self, msg):
+            captured.append(msg)
+
+    monkeypatch.setattr(emailer.smtplib, "SMTP", FakeSMTP)
+    first = build_update("voyager_1", "light_minute", position(1432.5))
+    second = build_update("voyager_1", "light_minute", position(1433.5))
+    send_update("a@example.com", first)
+    send_update("a@example.com", second)
+
+    assert first["subject"] != second["subject"]
+    assert captured[0]["Message-ID"] != captured[1]["Message-ID"]
+    assert captured[0]["X-Entity-Ref-ID"] != captured[1]["X-Entity-Ref-ID"]
+    for msg in captured:
+        assert msg["In-Reply-To"] is None
+        assert msg["References"] is None
+
+
+def test_design_declares_both_colour_schemes():
+    html = build_update("voyager_1", "light_minute", position(1432.5))["html"]
+    assert '<meta name="color-scheme" content="light dark">' in html
+    assert 'bgcolor="#05060e"' in html
