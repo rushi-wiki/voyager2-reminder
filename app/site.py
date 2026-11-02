@@ -151,8 +151,10 @@ def _panel(key, content, position, snapshot, active):
 
     return f"""<div role="tabpanel" id="panel-{key}" aria-labelledby="tab-{key}" class="panel"{"" if active else " data-inactive"} data-craft="{css_name}">
   <figure class="tile map">
-    <button type="button" class="journey-open" data-journey>&#9654; Watch the real journey</button>
-    <img data-journey src="/images/map/{key}.jpg?v={version}" width="1120" height="620" alt="Map showing {escape(content['name'])} and its twin far beyond the planets, at {content['au']:.1f} AU from the Sun">
+    <button type="button" class="map-trigger" data-journey aria-label="Play the real journey of both Voyagers">
+      <img src="/images/map/{key}.jpg?v={version}" width="1120" height="620" alt="Map showing {escape(content['name'])} and its twin far beyond the planets, at {content['au']:.1f} AU from the Sun">
+      <span class="map-hint">Press the map to watch the journey</span>
+    </button>
   </figure>
   <section class="tile readout">
     <p class="eyebrow"><strong>{escape(content['name'])}</strong> &middot; {escape(content['unit_label'].capitalize())} {content['count']:,} from the Sun</p>
@@ -319,54 +321,31 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: normal; font-s
 .unavailable { padding: 40px 16px; text-align: center; color: var(--soft); }
 
 .map { position: relative; }
-.map img { cursor: pointer; }
-html:not(.js) .journey-open { display: none; }
-.journey-open { position: absolute; top: 10px; left: 10px; z-index: 1; min-height: 38px; padding: 0 13px; font: inherit; font-size: 13px; font-weight: 600; color: #10132a; background: #f2f3fa; border: 0; border-radius: 8px; cursor: pointer; }
-.journey-open:hover { background: #ffffff; }
-.journey-open:focus-visible { outline: 2px solid #6fd3ff; outline-offset: 2px; }
-#journey { width: min(1160px, calc(100vw - 32px)); max-width: none; height: min(760px, calc(100dvh - 32px)); max-height: none; padding: 0; color: #f2f3fa; background: #070913; border: 1px solid #2a2f4f; border-radius: 14px; overflow: hidden; }
-#journey[open] { display: flex; flex-direction: column; }
-#journey::backdrop { background: rgba(3, 4, 12, 0.78); }
-.journey-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px 10px 16px; border-bottom: 1px solid #2a2f4f; }
-.journey-head h2 { font-family: Georgia, 'Times New Roman', serif; font-weight: normal; font-size: 18px; line-height: 24px; }
-.journey-note { color: #9195ad; font-size: 12px; line-height: 16px; }
-.journey-stage { position: relative; flex: 1 1 auto; min-height: 0; }
-#journey canvas { display: block; position: absolute; inset: 0; width: 100%; height: 100%; }
-.journey-readout { position: absolute; top: 10px; left: 16px; pointer-events: none; text-shadow: 0 1px 4px #000, 0 0 8px #070913; }
-#journey-date { font-size: 24px; line-height: 30px; font-family: Georgia, 'Times New Roman', serif; }
-#journey-caption { max-width: 300px; min-height: 40px; font-size: 14px; line-height: 20px; color: #c3c7dc; }
-.journey-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: #c3c7dc; }
+.map-trigger { display: block; width: 100%; height: 100%; padding: 0; background: none; border: 0; border-radius: inherit; cursor: pointer; }
+html:not(.js) .map-trigger { cursor: default; }
+.map-trigger:focus-visible { outline: 2px solid #6fd3ff; outline-offset: -3px; }
+.map-hint { position: absolute; top: 9px; left: 11px; font-size: 12px; line-height: 16px; color: #dfe3f5; text-shadow: 0 1px 3px #000; pointer-events: none; }
+html:not(.js) .map-hint { display: none; }
+.map.playing { min-height: 330px; }
+.journey { position: absolute; inset: 0; z-index: 1; color: #f2f3fa; background: #070913; }
+.journey[hidden] { display: none; }
+.journey canvas { display: block; position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; }
+.journey-readout { position: absolute; top: 8px; left: 12px; right: 12px; pointer-events: none; text-shadow: 0 1px 4px #000, 0 0 8px #070913; }
+#journey-date { font-family: Georgia, 'Times New Roman', serif; font-size: 18px; line-height: 23px; }
+#journey-caption { max-width: 340px; font-size: 12px; line-height: 16px; color: #d4d8ea; }
+.journey-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; color: #c3c7dc; pointer-events: none; }
 .journey-status:empty { display: none; }
-.journey-controls { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid #2a2f4f; }
-.journey-controls input { flex: 1 1 auto; min-width: 0; accent-color: #f4b860; height: 28px; }
-.journey-button { flex: 0 0 auto; min-width: 44px; min-height: 40px; padding: 0 12px; font: inherit; font-size: 14px; color: #f2f3fa; background: #181c3a; border: 1px solid #2a2f4f; border-radius: 8px; cursor: pointer; }
+.journey-controls { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(7, 9, 19, 0.82); }
+.journey-controls input { flex: 1 1 auto; min-width: 0; height: 28px; accent-color: #f4b860; }
+.journey-button { flex: 0 0 auto; min-width: 40px; min-height: 32px; padding: 0 10px; font: inherit; font-size: 13px; color: #f2f3fa; background: #181c3a; border: 1px solid #2a2f4f; border-radius: 7px; cursor: pointer; }
 .journey-button:hover { background: #2a2f4f; }
 .journey-button:focus-visible, .journey-controls input:focus-visible { outline: 2px solid #6fd3ff; outline-offset: 2px; }
-
-@media (min-width: 900px) {
-  .page {
-    padding: 20px 24px;
-    column-gap: 32px;
-    row-gap: 16px;
-    grid-template-columns: minmax(0, 1fr) 400px;
-    grid-template-areas: "intro signup" "content content";
-    align-items: center;
-  }
-  .signup-link { display: none; }
-  .toolbar { margin-bottom: 14px; }
-  .tabs { flex: 0 0 360px; }
-  .panel { gap: 14px; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); align-items: stretch; }
-  .signal { font-size: 42px; line-height: 48px; }
-  .progress { margin-top: auto; padding-top: 12px; }
-  .story { flex-direction: row; }
-  .story > img { width: 44%; aspect-ratio: auto; min-height: 100%; }
-  .story-text { flex: 1 1 0; min-width: 0; align-self: center; }
-}
 """
 
 SCRIPT = """
 const tabs = [...document.querySelectorAll('[role=tab]')];
 function selectTab(tab, focus) {
+  if (window.stopJourney) window.stopJourney();
   tabs.forEach((other) => {
     const selected = other === tab;
     other.setAttribute('aria-selected', selected);
@@ -456,7 +435,7 @@ if (latest) {
   document.addEventListener('visibilitychange', poll);
 }
 
-// The journey animation only downloads its data when someone asks to watch it
+// Pressing the map plays the journey in its place. Its data only downloads then.
 const journey = document.getElementById('journey');
 const canvas = document.getElementById('journey-canvas');
 const scrub = document.getElementById('journey-scrub');
@@ -467,6 +446,7 @@ const DAY_MS = 86400000;
 const WARP_DAYS = (Date.UTC(1990, 5, 1) - EPOCH) / DAY_MS;
 const WARP_AT = 0.62; // The busy years of flybys get most of the running time
 const RUN_MS = 34000;
+const CONTROLS_HEIGHT = 44;
 const dayOf = (year, month, day) => (Date.UTC(year, month - 1, day) - EPOCH) / DAY_MS;
 const EVENTS = [
   [0, 'Voyager 2 launches first, on a slower route.'],
@@ -492,6 +472,7 @@ let progress = 0;
 let playing = false;
 let lastFrame = 0;
 let view = null;
+let journeyMap = null;
 const todayDays = () => (Date.now() - EPOCH) / DAY_MS;
 function dayAt(p) {
   if (p <= WARP_AT) return (p / WARP_AT) * WARP_DAYS;
@@ -537,13 +518,13 @@ function makeView() {
   });
   const xs = box.map((b) => b[0]);
   const ys = box.map((b) => b[1]);
-  const margin = 44;
+  const margin = 26;
   const k = Math.min(
     (width - margin * 2) / (Math.max(...xs) - Math.min(...xs)),
-    (height - margin * 2) / Math.max(Math.max(...ys) - Math.min(...ys), 1),
+    (height - CONTROLS_HEIGHT - margin * 2) / Math.max(Math.max(...ys) - Math.min(...ys), 1),
   );
   const originX = (width - (Math.max(...xs) + Math.min(...xs)) * k) / 2;
-  const originY = (height - (Math.max(...ys) + Math.min(...ys)) * k) / 2;
+  const originY = (height - CONTROLS_HEIGHT - (Math.max(...ys) + Math.min(...ys)) * k) / 2;
   let seed = 7;
   const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const stars = Array.from({length: 170}, () => [random() * width, random() * height, random() * 1.1 + 0.3, random() * 0.5 + 0.2]);
@@ -673,14 +654,17 @@ function setPlaying(value) {
   }
 }
 function frame(now) {
-  if (!playing || !journey.open) return;
+  if (!playing || !journeyMap) return;
   progress = Math.min(1, progress + (now - lastFrame) / RUN_MS);
   lastFrame = now;
   draw();
   if (progress >= 1) setPlaying(false); else requestAnimationFrame(frame);
 }
-async function openJourney() {
-  journey.showModal();
+async function openJourney(map) {
+  journeyMap = map;
+  map.classList.add('playing');
+  map.append(journey);
+  journey.hidden = false;
   if (!paths) {
     statusText.textContent = 'Loading the journey...';
     try {
@@ -689,10 +673,11 @@ async function openJourney() {
       paths = (await response.json()).bodies;
       statusText.textContent = '';
     } catch (error) {
-      statusText.textContent = 'The journey could not load. Close this and try again.';
+      statusText.textContent = 'The journey could not load. Press the cross and try again.';
       return;
     }
   }
+  if (journeyMap !== map) return;
   makeView();
   // Without motion, start at today's positions and let people drag through time
   const stillOnly = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -700,22 +685,38 @@ async function openJourney() {
   draw();
   setPlaying(!stillOnly);
 }
-document.querySelectorAll('[data-journey]').forEach((element) => element.addEventListener('click', openJourney));
-document.getElementById('journey-close').addEventListener('click', () => journey.close());
-journey.addEventListener('click', (event) => { if (event.target === journey) journey.close(); });
-journey.addEventListener('close', () => setPlaying(false));
-playButton.addEventListener('click', () => {
+window.stopJourney = function () {
+  if (!journeyMap) return;
+  setPlaying(false);
+  journey.hidden = true;
+  journeyMap.classList.remove('playing');
+  journeyMap = null;
+};
+function togglePlaying() {
   if (playing) return setPlaying(false);
   if (progress >= 1) progress = 0;
   setPlaying(true);
+}
+document.querySelectorAll('[data-journey]').forEach((trigger) => {
+  trigger.addEventListener('click', () => openJourney(trigger.closest('.map')));
 });
+document.getElementById('journey-close').addEventListener('click', () => {
+  const trigger = journeyMap.querySelector('[data-journey]');
+  window.stopJourney();
+  trigger.focus();
+});
+canvas.addEventListener('click', togglePlaying);
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') window.stopJourney();
+});
+playButton.addEventListener('click', togglePlaying);
 scrub.addEventListener('input', () => {
   progress = Number(scrub.value) / 1000;
   setPlaying(false);
   draw();
 });
 window.addEventListener('resize', () => {
-  if (journey.open && paths) {
+  if (journeyMap && paths) {
     makeView();
     draw();
   }
@@ -787,21 +788,16 @@ def render_page():
 <noscript><p class="message">Subscribing needs JavaScript turned on.</p></noscript>
 </form>
 </main>
-<dialog id="journey" aria-labelledby="journey-title">
-<div class="journey-head">
-<div><h2 id="journey-title">The journey so far</h2><p class="journey-note">Real paths and planet positions from NASA JPL, seen from above. Distances compressed.</p></div>
-<button type="button" class="journey-button" id="journey-close">Close</button>
-</div>
-<div class="journey-stage">
-<canvas id="journey-canvas" role="img" aria-label="Animation of Voyager 1 and Voyager 2 travelling from Earth past the planets, from 1977 to today"></canvas>
+<div id="journey" class="journey" hidden>
+<canvas id="journey-canvas" role="img" aria-label="Animation of Voyager 1 and Voyager 2 travelling from Earth past the planets, from 1977 to today. Real paths and planet positions from NASA JPL, seen from above, with distances compressed."></canvas>
 <div class="journey-readout"><div id="journey-date"></div><div id="journey-caption" aria-live="polite"></div></div>
 <div class="journey-status" id="journey-status"></div>
-</div>
 <div class="journey-controls">
 <button type="button" class="journey-button" id="journey-play">Play</button>
 <input type="range" id="journey-scrub" min="0" max="1000" value="0" aria-label="Move through time">
+<button type="button" class="journey-button" id="journey-close" aria-label="Back to today's map">&#10005;</button>
 </div>
-</dialog>
+</div>
 <script id="latest-data" type="application/json">{latest}</script>
 <script>{SCRIPT}</script>
 </body>

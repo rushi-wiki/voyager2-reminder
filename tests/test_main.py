@@ -586,7 +586,9 @@ def test_real_trajectories_are_served_and_match_history():
 def test_page_offers_the_journey_without_loading_it_up_front(page_data):
     html = client.get("/").text
     assert 'id="journey"' in html
-    assert html.count("Watch the real journey") == 2
+    assert "<dialog" not in html
+    assert html.count("Press the map to watch the journey") == 2
+    assert "Watch the real journey" not in html
     assert "voyager_1" in html and '"t":[' not in html
 
 
