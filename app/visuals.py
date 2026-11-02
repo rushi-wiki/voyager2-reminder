@@ -43,13 +43,27 @@ def _stars(draw, seed):
         level = rng.randrange(60, 190)
         draw.ellipse((x, y, x + size, y + size), fill=(level, level, min(255, level + 25)))
 
+def _glow(image, x, y, radius, blur, color, strength):
+    # Work on just the patch around the glow, since the app runs on a small
+    # machine and copying the whole picture for each effect exhausts its memory.
+    reach = radius + blur * 3
+    box = (
+        max(0, int(x - reach)),
+        max(0, int(y - reach)),
+        min(image.width, int(x + reach)),
+        min(image.height, int(y + reach)),
+    )
+    if box[0] >= box[2] or box[1] >= box[3]:
+        return
+    patch = image.crop(box)
+    glow = Image.new("RGB", patch.size, (0, 0, 0))
+    cx, cy = x - box[0], y - box[1]
+    ImageDraw.Draw(glow).ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=color)
+    glow = glow.filter(ImageFilter.GaussianBlur(blur))
+    image.paste(Image.blend(patch, Image.composite(glow, patch, glow.convert("L")), strength), box[:2])
+
 def _sun(image, x, y):
-    glow = Image.new("RGB", image.size, (0, 0, 0))
-    draw = ImageDraw.Draw(glow)
-    radius = 26 * SCALE
-    draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=(255, 190, 90))
-    glow = glow.filter(ImageFilter.GaussianBlur(24 * SCALE))
-    image.paste(Image.blend(image, Image.composite(glow, image, glow.convert("L")), 0.85))
+    _glow(image, x, y, 26 * SCALE, 24 * SCALE, (255, 190, 90), 0.85)
     draw = ImageDraw.Draw(image)
     radius = 8 * SCALE
     draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=(255, 236, 190))
@@ -81,12 +95,7 @@ def _craft(image, draw, sun_x, sun_y, angle, au, name, color, active):
         )
 
     if active:
-        glow = Image.new("RGB", image.size, (0, 0, 0))
-        glow_draw = ImageDraw.Draw(glow)
-        halo = 15 * SCALE
-        glow_draw.ellipse((x - halo, y - halo, x + halo, y + halo), fill=color)
-        glow = glow.filter(ImageFilter.GaussianBlur(12 * SCALE))
-        image.paste(Image.blend(image, Image.composite(glow, image, glow.convert("L")), 0.9))
+        _glow(image, x, y, 15 * SCALE, 12 * SCALE, color, 0.9)
         draw = ImageDraw.Draw(image)
 
     dot = (10 if active else 7) * SCALE

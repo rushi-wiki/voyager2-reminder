@@ -5,6 +5,7 @@
 
 app = 'voyager2-reminder'
 primary_region = 'bom'
+swap_size_mb = 512
 
 [build]
 
