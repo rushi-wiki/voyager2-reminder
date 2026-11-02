@@ -488,6 +488,7 @@ const RUN_MS = 42000;
 const FADE_MS = 700;
 const REWIND_MS = 1800;
 const CAPTION_HOLD_MS = 2600; // Long enough to read, even when events fall close together
+const CAPTION_LIMIT_MS = 5000;
 // The map picture's geometry, from visuals.py
 const MAP_WIDTH = 1120;
 const MAP_HEIGHT = 620;
@@ -543,7 +544,8 @@ function captionAt(p) {
     const due = progressAt(day);
     if (due > 1) return;
     shownFrom = Math.max(due, shownFrom + hold);
-    if (shownFrom <= p) caption = text;
+    // Clear it after a while, so an old event doesn't sit there for years
+    if (shownFrom <= p) caption = (p - shownFrom) * RUN_MS < CAPTION_LIMIT_MS ? text : '';
   });
   return caption;
 }
@@ -552,6 +554,7 @@ function dateLabelAt(p) {
   if (p >= 1) return new Date().toLocaleDateString('en-GB', {month: 'long', year: 'numeric', timeZone: 'UTC'});
   const date = new Date(EPOCH + dayAt(p) * DAY_MS);
   const year = date.getUTCFullYear();
+  if (year === 1977) return 'August 1977';
   if (year < 1990) return `${date.getUTCMonth() < 6 ? 'January' : 'July'} ${year}`;
   return String(year - year % 5);
 }
