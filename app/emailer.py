@@ -146,15 +146,21 @@ def _stat(value, label, c):
                         <div style="font-size:11px;line-height:14px;color:{c['soft']};padding-top:2px;">{escape(label)}</div>
                     </td>"""
 
-def _progress(signal_s, c):
-    """How far along the road to the next whole light-day from Earth."""
+def light_day_progress(signal_s):
+    """The next whole light-day from Earth and how far along the road to it, if worth showing."""
     done = signal_s / SECONDS_PER_DAY
     target = int(done) + 1
     percent = min(99.9, (done - int(done)) * 100)
     # A bar that has barely started, as just after a milestone, has nothing to say
     if percent < 5:
+        return None
+    return ("one light-day" if target == 1 else f"{target} light-days"), percent
+
+def _progress(signal_s, c):
+    progress = light_day_progress(signal_s)
+    if not progress:
         return ""
-    label = "one light-day" if target == 1 else f"{target} light-days"
+    label, percent = progress
     filled = min(99, max(1, round(percent)))
     empty = f'<td width="{100 - filled}%" bgcolor="{c["line"]}" style="background-color:{c["line"]};font-size:0;line-height:0;">&nbsp;</td>'
     return f"""

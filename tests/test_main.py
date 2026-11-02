@@ -504,3 +504,23 @@ def test_signups_have_a_daily_ceiling(db, signup, monkeypatch):
         client.post("/register", json={"email": f"d{i}@example.com"}, headers={"fly-client-ip": f"203.0.113.{i}"})
     response = client.post("/register", json={"email": "d3@example.com"}, headers={"fly-client-ip": "203.0.113.50"})
     assert response.status_code == 429
+
+
+def test_page_uses_tabs_with_one_spacecraft_showing_first(page_data):
+    html = client.get("/").text
+    assert 'role="tablist"' in html
+    assert 'id="tab-voyager_1" aria-controls="panel-voyager_1" aria-selected="true"' in html
+    assert 'id="tab-voyager_2" aria-controls="panel-voyager_2" aria-selected="false"' in html
+    assert 'id="panel-voyager_1" aria-labelledby="tab-voyager_1" class="panel" data-craft="voyager-1">' in html
+    assert 'id="panel-voyager_2" aria-labelledby="tab-voyager_2" class="panel" data-inactive data-craft="voyager-2">' in html
+
+
+def test_page_has_a_live_distance_counter_for_each_spacecraft(page_data):
+    html = client.get("/").text
+    assert html.count('class="odometer-value"') == 2
+    assert "km from Earth, growing by 31.5 km every second" in html
+
+
+def test_counter_says_when_the_gap_is_shrinking(page_data, monkeypatch):
+    monkeypatch.setattr(page_data, "get_position", lambda key: position(1432.5, earth_km_s=-8.2))
+    assert "km from Earth, shrinking by 8.2 km every second" in client.get("/").text
