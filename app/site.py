@@ -324,17 +324,21 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: normal; font-s
 .map-trigger { display: block; width: 100%; height: 100%; padding: 0; background: none; border: 0; border-radius: inherit; cursor: pointer; }
 html:not(.js) .map-trigger { cursor: default; }
 .map-trigger:focus-visible { outline: 2px solid #6fd3ff; outline-offset: -3px; }
-.map-hint { position: absolute; top: 9px; left: 11px; font-size: 12px; line-height: 16px; color: #dfe3f5; text-shadow: 0 1px 3px #000; pointer-events: none; }
+.map-hint { position: absolute; top: 9px; left: 11px; font-size: 12px; line-height: 16px; color: #dfe3f5; text-shadow: 0 1px 3px #000; pointer-events: none; transition: opacity 0.4s ease; }
+.map.playing .map-hint { opacity: 0; }
 html:not(.js) .map-hint { display: none; }
+.map { transition: min-height 0.7s ease; }
 .map.playing { min-height: 330px; }
-.journey { position: absolute; inset: 0; z-index: 1; color: #f2f3fa; background: #070913; }
+.journey { position: absolute; inset: 0; z-index: 1; color: #f2f3fa; background: #070913; opacity: 0; transition: opacity 0.7s ease; }
+.journey.visible { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .map, .journey, .map-hint { transition: none; }
+}
 .journey[hidden] { display: none; }
 .journey canvas { display: block; position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; }
 .journey-readout { position: absolute; top: 8px; left: 12px; right: 12px; pointer-events: none; text-shadow: 0 1px 4px #000, 0 0 8px #070913; }
 #journey-date { font-family: Georgia, 'Times New Roman', serif; font-size: 18px; line-height: 23px; }
 #journey-caption { max-width: 340px; font-size: 12px; line-height: 16px; color: #d4d8ea; }
-.journey-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; color: #c3c7dc; pointer-events: none; }
-.journey-status:empty { display: none; }
 .journey-controls { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(7, 9, 19, 0.82); }
 .journey-controls input { flex: 1 1 auto; min-width: 0; height: 28px; accent-color: #f4b860; }
 .journey-button { flex: 0 0 auto; min-width: 40px; min-height: 32px; padding: 0 10px; font: inherit; font-size: 13px; color: #f2f3fa; background: #181c3a; border: 1px solid #2a2f4f; border-radius: 7px; cursor: pointer; }
@@ -365,7 +369,7 @@ html:not(.js) .map-hint { display: none; }
 SCRIPT = """
 const tabs = [...document.querySelectorAll('[role=tab]')];
 function selectTab(tab, focus) {
-  if (window.stopJourney) window.stopJourney();
+  if (window.stopJourney) window.stopJourney(true);
   tabs.forEach((other) => {
     const selected = other === tab;
     other.setAttribute('aria-selected', selected);
@@ -460,13 +464,14 @@ const journey = document.getElementById('journey');
 const canvas = document.getElementById('journey-canvas');
 const scrub = document.getElementById('journey-scrub');
 const playButton = document.getElementById('journey-play');
-const statusText = document.getElementById('journey-status');
 const EPOCH = Date.UTC(1977, 7, 20);
 const DAY_MS = 86400000;
 const WARP_DAYS = (Date.UTC(1990, 5, 1) - EPOCH) / DAY_MS;
 const WARP_AT = 0.62; // The busy years of flybys get most of the running time
 const RUN_MS = 34000;
 const CONTROLS_HEIGHT = 44;
+const FADE_MS = 700;
+const SETTLE_MS = 350; // A moment on the first frame before anything moves
 const dayOf = (year, month, day) => (Date.UTC(year, month - 1, day) - EPOCH) / DAY_MS;
 const EVENTS = [
   [0, 'Voyager 2 launches first, on a slower route.'],
@@ -493,6 +498,9 @@ let playing = false;
 let lastFrame = 0;
 let view = null;
 let journeyMap = null;
+let startTimer = null;
+let hideTimer = null;
+let loading = false;
 const todayDays = () => (Date.now() - EPOCH) / DAY_MS;
 function dayAt(p) {
   if (p <= WARP_AT) return (p / WARP_AT) * WARP_DAYS;
@@ -681,39 +689,66 @@ function frame(now) {
   draw();
   if (progress >= 1) setPlaying(false); else requestAnimationFrame(frame);
 }
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 async function openJourney(map) {
-  journeyMap = map;
-  map.classList.add('playing');
-  map.append(journey);
-  journey.hidden = false;
+  if (loading || journeyMap === map) return;
   if (!paths) {
-    statusText.textContent = 'Loading the journey...';
+    // The map stays in place until there is something ready to fade in
+    const hint = map.querySelector('.map-hint');
+    const original = hint.textContent;
+    hint.textContent = 'Loading the journey...';
+    loading = true;
     try {
       const response = await fetch('/trajectories.json');
       if (!response.ok) throw new Error('unavailable');
       paths = (await response.json()).bodies;
-      statusText.textContent = '';
+      hint.textContent = original;
     } catch (error) {
-      statusText.textContent = 'The journey could not load. Press the cross and try again.';
+      hint.textContent = 'The journey could not load. Press the map to try again.';
       return;
+    } finally {
+      loading = false;
     }
   }
-  if (journeyMap !== map) return;
-  makeView();
+  clearTimeout(hideTimer);
+  journeyMap = map;
+  map.classList.add('playing');
+  map.append(journey);
+  journey.hidden = false;
   // Without motion, start at today's positions and let people drag through time
-  const stillOnly = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const stillOnly = reducedMotion();
   progress = stillOnly ? 1 : 0;
+  makeView();
   draw();
-  setPlaying(!stillOnly);
-}
-window.stopJourney = function () {
-  if (!journeyMap) return;
+  void journey.offsetWidth; // Let the browser see the hidden state, so the fade runs
+  journey.classList.add('visible');
   setPlaying(false);
-  journey.hidden = true;
+  if (!stillOnly) {
+    playButton.textContent = 'Pause';
+    startTimer = setTimeout(() => {
+      startTimer = null;
+      setPlaying(true);
+    }, FADE_MS + SETTLE_MS);
+  }
+}
+window.stopJourney = function (immediately) {
+  if (!journeyMap) return;
+  clearTimeout(startTimer);
+  startTimer = null;
+  setPlaying(false);
+  journey.classList.remove('visible');
   journeyMap.classList.remove('playing');
   journeyMap = null;
+  clearTimeout(hideTimer);
+  if (immediately || reducedMotion()) journey.hidden = true;
+  else hideTimer = setTimeout(() => { journey.hidden = true; }, FADE_MS);
 };
 function togglePlaying() {
+  // A press during the opening fade starts or pauses it right away
+  const waiting = startTimer !== null;
+  clearTimeout(startTimer);
+  startTimer = null;
+  if (waiting && progress === 0) return setPlaying(false);
   if (playing) return setPlaying(false);
   if (progress >= 1) progress = 0;
   setPlaying(true);
@@ -732,16 +767,19 @@ document.addEventListener('keydown', (event) => {
 });
 playButton.addEventListener('click', togglePlaying);
 scrub.addEventListener('input', () => {
+  clearTimeout(startTimer);
+  startTimer = null;
   progress = Number(scrub.value) / 1000;
   setPlaying(false);
   draw();
 });
-window.addEventListener('resize', () => {
+// Also keeps the drawing sharp and in proportion while the tile grows on phones
+new ResizeObserver(() => {
   if (journeyMap && paths) {
     makeView();
     draw();
   }
-});
+}).observe(journey);
 
 const form = document.getElementById('subscribe');
 const message = document.getElementById('message');
@@ -812,7 +850,6 @@ def render_page():
 <div id="journey" class="journey" hidden>
 <canvas id="journey-canvas" role="img" aria-label="Animation of Voyager 1 and Voyager 2 travelling from Earth past the planets, from 1977 to today. Real paths and planet positions from NASA JPL, seen from above, with distances compressed."></canvas>
 <div class="journey-readout"><div id="journey-date"></div><div id="journey-caption" aria-live="polite"></div></div>
-<div class="journey-status" id="journey-status"></div>
 <div class="journey-controls">
 <button type="button" class="journey-button" id="journey-play">Play</button>
 <input type="range" id="journey-scrub" min="0" max="1000" value="0" aria-label="Move through time">
