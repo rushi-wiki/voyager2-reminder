@@ -1,14 +1,19 @@
 import secrets
+import time
+from collections import defaultdict, deque
 from html import escape
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel, EmailStr
 from . import models, database
 from . import scheduler
+from . import site
 from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
+from .distance_fetcher import SPACECRAFT
 from .emailer import APP_BASE_URL, send_verification_email
+from .postcards import POSTCARD_DIR
 
 database.migrate()
 models.Base.metadata.create_all(bind=database.engine)
@@ -26,18 +31,68 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+CHECK_INBOX = "Check your inbox to confirm your subscription."
+
+# A public form that sends email needs limits, or anyone could use it to send
+# confirmation emails to strangers and use up the Brevo allowance.
+SIGNUPS_PER_IP_PER_HOUR = 5
+SIGNUPS_PER_DAY = 100
+_signups_by_ip = defaultdict(deque)
+_signups_today = deque()
+
+def _allow_signup(ip):
+    now = time.time()
+    by_ip = _signups_by_ip[ip]
+    while by_ip and now - by_ip[0] > 3600:
+        by_ip.popleft()
+    while _signups_today and now - _signups_today[0] > 86400:
+        _signups_today.popleft()
+    if len(by_ip) >= SIGNUPS_PER_IP_PER_HOUR or len(_signups_today) >= SIGNUPS_PER_DAY:
+        return False
+    by_ip.append(now)
+    _signups_today.append(now)
+    return True
+
 class UserIn(BaseModel):
     email: EmailStr
-    unit: str
+    unit: str = "light_minute"
+    company: str = ""  # Hidden from people, so only bots fill it in
+
+@app.get("/", response_class=HTMLResponse)
+def home():
+    return site.render_page()
+
+@app.get("/images/map/{spacecraft}.jpg")
+def map_image(spacecraft: str):
+    image = site.get_map(spacecraft) if spacecraft in SPACECRAFT else None
+    if not image:
+        raise HTTPException(status_code=404, detail="Not found")
+    return Response(image, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=900"})
+
+@app.get("/images/postcards/{name}")
+def postcard_image(name: str):
+    if name not in site.POSTCARD_IMAGES:
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(POSTCARD_DIR / name, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
 
 @app.post("/register", status_code=202)
-def register(user: UserIn):
-    db: Session = database.SessionLocal()
-    if db.query(models.User).filter_by(email=user.email).first():
-        raise HTTPException(status_code=400, detail="Email already registered")
-
+def register(user: UserIn, request: Request):
     if user.unit not in ["light_second", "light_minute", "light_hour"]:
         raise HTTPException(status_code=400, detail="Invalid unit")
+
+    # Answer bots as if it worked, so they don't learn to avoid the trap field
+    if user.company:
+        return {"message": CHECK_INBOX}
+
+    # Fly.io puts the visitor's real address in this header
+    ip = request.headers.get("fly-client-ip") or (request.client.host if request.client else "unknown")
+    if not _allow_signup(ip):
+        raise HTTPException(status_code=429, detail="Too many sign-ups right now. Try again later.")
+
+    db: Session = database.SessionLocal()
+    # Same answer either way, so the form can't reveal who is subscribed
+    if db.query(models.User).filter_by(email=user.email).first():
+        return {"message": CHECK_INBOX}
 
     token = secrets.token_urlsafe(32)
     new_user = models.User(email=user.email, unit=user.unit, verify_token=token)
@@ -52,7 +107,7 @@ def register(user: UserIn):
         db.commit()
         raise HTTPException(status_code=502, detail="Could not send verification email; please try again.")
 
-    return {"message": "Check your inbox to confirm your subscription."}
+    return {"message": CHECK_INBOX}
 
 
 @app.get("/verify", response_class=HTMLResponse)

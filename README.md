@@ -1,8 +1,10 @@
-# Voyager 2 Reminder 🚀
+# Voyager Reminder 🚀
 
 A FastAPI-based web service that emails you as NASA's Voyager 1 and Voyager 2 travel farther from the Sun. Users register with their preferred distance unit (light-seconds, light-minutes, or light-hours), and every update also shows how long each spacecraft's signal takes to reach Earth.
 
 Updates are triggered by distance from the Sun, which only ever grows. Distance from Earth rises and falls with Earth's orbit, so it would stall the emails for months each year. It is still used for the signal time in each email, and for a one-off email whenever a spacecraft passes a new light-day from Earth.
+
+The home page shows the same update for both spacecraft, using the same template as the email, with a form to subscribe.
 
 ## Features
 

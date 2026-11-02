@@ -127,14 +127,26 @@ def _dsn_line(name, contact):
         f"at {contact['rate_bps']:,.0f} bits per second."
     )
 
-def _stat(value, label, accent):
+def email_colors(spacecraft):
+    return {
+        "background": BACKGROUND,
+        "card": CARD,
+        "panel": PANEL,
+        "line": LINE,
+        "text": TEXT,
+        "soft": SOFT,
+        "faint": FAINT,
+        "accent": STYLE[spacecraft]["accent"],
+    }
+
+def _stat(value, label, c):
     return f"""
                     <td width="33%" valign="top" style="padding:10px 6px;text-align:center;">
-                        <div style="font-size:18px;line-height:22px;font-weight:bold;color:{accent};">{escape(value)}</div>
-                        <div style="font-size:11px;line-height:14px;color:{SOFT};padding-top:2px;">{escape(label)}</div>
+                        <div style="font-size:18px;line-height:22px;font-weight:bold;color:{c['accent']};">{escape(value)}</div>
+                        <div style="font-size:11px;line-height:14px;color:{c['soft']};padding-top:2px;">{escape(label)}</div>
                     </td>"""
 
-def _progress(signal_s, accent):
+def _progress(signal_s, c):
     """How far along the road to the next whole light-day from Earth."""
     done = signal_s / SECONDS_PER_DAY
     target = int(done) + 1
@@ -144,106 +156,114 @@ def _progress(signal_s, accent):
         return ""
     label = "one light-day" if target == 1 else f"{target} light-days"
     filled = min(99, max(1, round(percent)))
-    empty = f'<td width="{100 - filled}%" bgcolor="{LINE}" style="background-color:{LINE};font-size:0;line-height:0;">&nbsp;</td>'
+    empty = f'<td width="{100 - filled}%" bgcolor="{c["line"]}" style="background-color:{c["line"]};font-size:0;line-height:0;">&nbsp;</td>'
     return f"""
         <tr>
             <td style="padding:0 22px 16px 22px;">
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-                    <td style="font-size:12px;color:{SOFT};padding-bottom:5px;">The road to {label} from Earth</td>
-                    <td align="right" style="font-size:12px;font-weight:bold;color:{accent};padding-bottom:5px;">{percent:.1f}%</td>
+                    <td style="font-size:12px;color:{c['soft']};padding-bottom:5px;">The road to {label} from Earth</td>
+                    <td align="right" style="font-size:12px;font-weight:bold;color:{c['accent']};padding-bottom:5px;">{percent:.1f}%</td>
                 </tr></table>
                 <table role="presentation" width="100%" height="6" cellpadding="0" cellspacing="0" border="0" style="height:6px;"><tr>
-                    <td width="{filled}%" bgcolor="{accent}" style="background-color:{accent};font-size:0;line-height:0;height:6px;">&nbsp;</td>{empty}
+                    <td width="{filled}%" bgcolor="{c['accent']}" style="background-color:{c['accent']};font-size:0;line-height:0;height:6px;">&nbsp;</td>{empty}
                 </tr></table>
             </td>
         </tr>"""
 
-def _row(label, text, accent):
+def _row(label, text, c):
     return f"""
         <tr>
-            <td style="padding:9px 22px;border-top:1px solid {LINE};font-size:13px;line-height:19px;color:{SOFT};"><span style="color:{accent};font-weight:bold;">{escape(label)}</span><br>{escape(text)}</td>
+            <td style="padding:9px 22px;border-top:1px solid {c['line']};font-size:13px;line-height:19px;color:{c['soft']};"><span style="color:{c['accent']};font-weight:bold;">{escape(label)}</span><br>{escape(text)}</td>
         </tr>"""
 
-def _postcard(card, accent):
+def _postcard(card, postcard_src, c):
     return f"""
         <tr>
             <td style="padding:0 22px 16px 22px;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{PANEL}" style="background-color:{PANEL};border-radius:10px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{c['panel']}" style="background-color:{c['panel']};border-radius:10px;">
                 <tr><td style="padding:0;">
-                    <img src="cid:postcard" width="516" alt="{escape(card['alt'])}" style="display:block;width:100%;max-width:516px;height:auto;border:0;border-radius:10px 10px 0 0;">
+                    <img src="{escape(postcard_src)}" width="516" alt="{escape(card['alt'])}" style="display:block;width:100%;max-width:516px;height:auto;border:0;border-radius:10px 10px 0 0;">
                 </td></tr>
                 <tr><td style="padding:11px 14px 13px 14px;">
-                    <div style="font-size:11px;color:{accent};padding-bottom:3px;">From the Voyager archive</div>
-                    <div style="font-family:Georgia,'Times New Roman',serif;font-size:17px;line-height:22px;color:{TEXT};padding-bottom:4px;">{escape(card['title'])}</div>
-                    <div style="font-size:13px;line-height:19px;color:{SOFT};">{escape(card['story'])}</div>
-                    <div style="font-size:11px;color:{FAINT};padding-top:6px;">Image: NASA/JPL</div>
+                    <div style="font-size:11px;color:{c['accent']};padding-bottom:3px;">From the Voyager archive</div>
+                    <div style="font-family:Georgia,'Times New Roman',serif;font-size:17px;line-height:22px;color:{c['text']};padding-bottom:4px;">{escape(card['title'])}</div>
+                    <div style="font-size:13px;line-height:19px;color:{c['soft']};">{escape(card['story'])}</div>
+                    <div style="font-size:11px;color:{c['faint']};padding-top:6px;">Image: NASA/JPL</div>
                 </td></tr>
                 </table>
             </td>
         </tr>"""
 
-def _footer(next_text, unsubscribe_url):
+def _footer(next_text, unsubscribe_url, c):
     unsubscribe = ""
     if unsubscribe_url:
         unsubscribe = (
             f'<br><a href="{escape(unsubscribe_url)}" '
-            f'style="color:{SOFT};text-decoration:underline;">Unsubscribe</a>'
+            f'style="color:{c["soft"]};text-decoration:underline;">Unsubscribe</a>'
         )
     return f"""
         <tr>
-            <td style="padding:12px 22px 18px 22px;border-top:1px solid {LINE};color:{FAINT};font-size:11px;line-height:16px;">
+            <td style="padding:12px 22px 18px 22px;border-top:1px solid {c['line']};color:{c['faint']};font-size:11px;line-height:16px;">
                 {escape(next_text)}<br>
                 Live data from NASA JPL Horizons and Deep Space Network Now.{unsubscribe}
             </td>
         </tr>"""
 
-def build_update(spacecraft, unit, position, previous_sun_km=None, twin_name=None,
-                 twin_position=None, contact=None, light_days=None, unsubscribe_url=None,
-                 today=None):
-    """Build the subject, HTML, plain text and images for one spacecraft update."""
+def build_content(spacecraft, unit, position, previous_sun_km=None, twin_name=None,
+                  twin_position=None, contact=None, light_days=None, today=None):
+    """Work out everything an update says, shared by the email and the web page."""
     name = SPACECRAFT[spacecraft]["name"]
-    style = STYLE[spacecraft]
-    accent = style["accent"]
     unit_km = DISTANCE_UNITS[unit]
     unit_label = unit.replace("_", "-")
     count = int(position["sun_km"] // unit_km)
     signal_s = position["earth_km"] / LIGHT_SPEED_KM_S
-    signal = _signal_time(signal_s)
-    au = position["sun_km"] / KM_PER_AU
-    billion_km = position["earth_km"] / 1e9
-    years, months = _time_in_flight(style["launch"], today or datetime.now(timezone.utc).date())
-
-    if light_days:
-        days = "one light-day" if light_days == 1 else f"{light_days} light-days"
-        subject = f"{name} is now {days} from Earth"
-    else:
-        # Round down, so the subject never claims a full light-day too early
-        whole_minutes = int(signal_s // 60)
-        subject = f"{name} passed {unit_label} {count:,}, signal now {whole_minutes // 60}h {whole_minutes % 60:02d}m from Earth"
-
-    lead = _lead(spacecraft, name, signal_s, light_days)
-    card = postcard_for(spacecraft, count, milestone=bool(light_days))
+    years, months = _time_in_flight(STYLE[spacecraft]["launch"], today or datetime.now(timezone.utc).date())
 
     moved = ""
     if previous_sun_km:
         moved_km = position["sun_km"] - previous_sun_km
         moved = f"{moved_km / 1e6:,.1f} million km farther from the Sun than in your last update."
-    speed = _speed_line(name, position)
-    heard = _dsn_line(name, contact)
     twin = ""
     if twin_name and twin_position:
         twin = f"{twin_name}'s signal takes {_signal_time(twin_position['earth_km'] / LIGHT_SPEED_KM_S)}, on a different heading."
     next_days = (unit_km - position["sun_km"] % unit_km) / position["sun_km_s"] / SECONDS_PER_DAY
     next_when = f"in about {next_days:.0f} days" if next_days >= 1.5 else "soon"
-    next_text = f"Next update at {unit_label} {count + 1:,}, {next_when}."
 
+    return {
+        "name": name,
+        "unit_label": unit_label,
+        "count": count,
+        "signal_s": signal_s,
+        "signal": _signal_time(signal_s),
+        "au": position["sun_km"] / KM_PER_AU,
+        "billion_km": position["earth_km"] / 1e9,
+        "years": years,
+        "months": months,
+        "lead": _lead(spacecraft, name, signal_s, light_days),
+        "card": postcard_for(spacecraft, count, milestone=bool(light_days)),
+        "moved": moved,
+        "speed": _speed_line(name, position),
+        "heard": _dsn_line(name, contact),
+        "twin": twin,
+        "next_text": f"Next update at {unit_label} {count + 1:,}, {next_when}.",
+        "light_days": light_days,
+    }
+
+def render_card(content, c, map_src, postcard_src, unsubscribe_url=None):
+    """The update itself, as used in both the email and the web page.
+
+    Colours come from c: fixed values for email, theme variables on the page.
+    """
+    name = content["name"]
+    light_days = content["light_days"]
+    unit_label = content["unit_label"]
     rows = "".join(
-        _row(label, text, accent)
+        _row(label, text, c)
         for label, text in [
-            ("Heard right now", heard),
-            ("Since last time", moved),
-            ("Why the number is changing", speed),
-            ("Meanwhile, its twin", twin),
+            ("Heard right now", content["heard"]),
+            ("Since last time", content["moved"]),
+            ("Why the number is changing", content["speed"]),
+            ("Meanwhile, its twin", content["twin"]),
         ]
         if text
     )
@@ -252,8 +272,57 @@ def build_update(spacecraft, unit, position, previous_sun_km=None, twin_name=Non
     if light_days:
         badge = f"""
         <tr>
-            <td style="padding:16px 22px 0 22px;font-size:12px;font-weight:bold;color:{accent};">Milestone reached</td>
+            <td style="padding:16px 22px 0 22px;font-size:12px;font-weight:bold;color:{c['accent']};">Milestone reached</td>
         </tr>"""
+
+    return f"""<table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" bgcolor="{c['card']}" style="width:100%;max-width:560px;background-color:{c['card']};border-radius:14px;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:{c['text']};">
+        <tr>
+            <td style="padding:0;">
+                <img src="{escape(map_src)}" width="560" alt="Map showing {escape(name)} and its twin far beyond the planets, at {content['au']:.1f} AU from the Sun" style="display:block;width:100%;max-width:560px;height:auto;border:0;border-radius:14px 14px 0 0;">
+            </td>
+        </tr>{badge}
+        <tr>
+            <td style="padding:{'4px' if light_days else '16px'} 22px 0 22px;color:{c['accent']};font-size:13px;font-weight:bold;">{escape(name)} &middot; <span style="color:{c['soft']};font-weight:normal;">{escape(unit_label.capitalize())} {content['count']:,} from the Sun</span></td>
+        </tr>
+        <tr>
+            <td style="padding:4px 22px 0 22px;font-family:Consolas,Menlo,'Courier New',monospace;font-size:34px;line-height:40px;font-weight:bold;color:{c['text']};">{content['signal']}</td>
+        </tr>
+        <tr>
+            <td style="padding:0 22px 10px 22px;color:{c['soft']};font-size:13px;">for its signal to reach Earth</td>
+        </tr>
+        <tr>
+            <td style="padding:0 22px 14px 22px;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:22px;color:{c['text']};">{escape(content['lead'])}</td>
+        </tr>
+        <tr>
+            <td style="padding:0 22px 12px 22px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{c['panel']}" style="background-color:{c['panel']};border-radius:10px;"><tr>{_stat(f"{content['au']:.1f}", "AU from the Sun", c)}{_stat(f"{content['billion_km']:.1f}", "billion km from Earth", c)}{_stat(f"{content['years']}y {content['months']}m", "in flight", c)}
+                </tr></table>
+            </td>
+        </tr>{_progress(content['signal_s'], c)}{_postcard(content['card'], postcard_src, c)}{rows}{_footer(content['next_text'], unsubscribe_url, c)}
+    </table>"""
+
+def build_update(spacecraft, unit, position, previous_sun_km=None, twin_name=None,
+                 twin_position=None, contact=None, light_days=None, unsubscribe_url=None,
+                 today=None):
+    """Build the subject, HTML, plain text and images for one spacecraft update."""
+    content = build_content(
+        spacecraft, unit, position, previous_sun_km, twin_name, twin_position,
+        contact, light_days, today,
+    )
+    name = content["name"]
+    signal = content["signal"]
+    card = content["card"]
+    lead = content["lead"]
+    next_text = content["next_text"]
+    colors = email_colors(spacecraft)
+
+    if light_days:
+        days = "one light-day" if light_days == 1 else f"{light_days} light-days"
+        subject = f"{name} is now {days} from Earth"
+    else:
+        # Round down, so the subject never claims a full light-day too early
+        whole_minutes = int(content["signal_s"] // 60)
+        subject = f"{name} passed {content['unit_label']} {content['count']:,}, signal now {whole_minutes // 60}h {whole_minutes % 60:02d}m from Earth"
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -268,31 +337,7 @@ def build_update(spacecraft, unit, position, previous_sun_km=None, twin_name=Non
     {_preheader(f"Its signal takes {signal} to reach Earth. This time: {card['title']}.")}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{BACKGROUND}" style="background-color:{BACKGROUND};">
     <tr><td align="center" style="padding:12px 6px;">
-    <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" bgcolor="{CARD}" style="width:100%;max-width:560px;background-color:{CARD};border-radius:14px;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:{TEXT};">
-        <tr>
-            <td style="padding:0;">
-                <img src="cid:map" width="560" alt="Map showing {escape(name)} and its twin far beyond the planets, at {au:.1f} AU from the Sun" style="display:block;width:100%;max-width:560px;height:auto;border:0;border-radius:14px 14px 0 0;">
-            </td>
-        </tr>{badge}
-        <tr>
-            <td style="padding:{'4px' if light_days else '16px'} 22px 0 22px;color:{accent};font-size:13px;font-weight:bold;">{escape(name)} &middot; <span style="color:{SOFT};font-weight:normal;">{escape(unit_label.capitalize())} {count:,} from the Sun</span></td>
-        </tr>
-        <tr>
-            <td style="padding:4px 22px 0 22px;font-family:Consolas,Menlo,'Courier New',monospace;font-size:34px;line-height:40px;font-weight:bold;color:{TEXT};">{signal}</td>
-        </tr>
-        <tr>
-            <td style="padding:0 22px 10px 22px;color:{SOFT};font-size:13px;">for its signal to reach Earth</td>
-        </tr>
-        <tr>
-            <td style="padding:0 22px 14px 22px;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:22px;color:{TEXT};">{escape(lead)}</td>
-        </tr>
-        <tr>
-            <td style="padding:0 22px 12px 22px;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{PANEL}" style="background-color:{PANEL};border-radius:10px;"><tr>{_stat(f"{au:.1f}", "AU from the Sun", accent)}{_stat(f"{billion_km:.1f}", "billion km from Earth", accent)}{_stat(f"{years}y {months}m", "in flight", accent)}
-                </tr></table>
-            </td>
-        </tr>{_progress(signal_s, accent)}{_postcard(card, accent)}{rows}{_footer(next_text, unsubscribe_url)}
-    </table>
+    {render_card(content, colors, "cid:map", "cid:postcard", unsubscribe_url)}
     </td></tr>
     </table>
 </body>
@@ -301,18 +346,18 @@ def build_update(spacecraft, unit, position, previous_sun_km=None, twin_name=Non
 
     text_lines = [f"{name}: its signal takes {signal} to reach Earth", "", lead, ""]
     text_lines += [
-        f"{au:.1f} AU from the Sun, {billion_km:.1f} billion km from Earth, "
-        f"{_plural(years, 'year')} and {_plural(months, 'month')} in flight.",
+        f"{content['au']:.1f} AU from the Sun, {content['billion_km']:.1f} billion km from Earth, "
+        f"{_plural(content['years'], 'year')} and {_plural(content['months'], 'month')} in flight.",
         "",
     ]
-    text_lines += [line for line in [heard, moved, speed, twin] if line]
+    text_lines += [line for line in [content["heard"], content["moved"], content["speed"], content["twin"]] if line]
     text_lines += ["", f"From the Voyager archive: {card['title']}", card["story"]]
     text_lines += ["", next_text, "Live data from NASA JPL Horizons and Deep Space Network Now."]
     if unsubscribe_url:
         text_lines += ["", f"Unsubscribe: {unsubscribe_url}"]
 
     images = {
-        "map": render_map(name, position, style["rgb"], twin_name, twin_position),
+        "map": render_map(name, position, STYLE[spacecraft]["rgb"], twin_name, twin_position),
         "postcard": (POSTCARD_DIR / card["image"]).read_bytes(),
     }
 

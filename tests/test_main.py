@@ -210,6 +210,8 @@ def test_backfill_moves_existing_users_once(db):
 
 
 def test_register_verify_and_unsubscribe(db, monkeypatch):
+    main._signups_by_ip.clear()
+    main._signups_today.clear()
     links = []
     monkeypatch.setattr(main, "send_verification_email", lambda to, url: links.append(url))
 
@@ -380,3 +382,125 @@ def test_design_declares_both_colour_schemes():
     html = build_update("voyager_1", "light_minute", position(1432.5))["html"]
     assert '<meta name="color-scheme" content="light dark">' in html
     assert 'bgcolor="#05060e"' in html
+
+
+@pytest.fixture
+def page_data(monkeypatch):
+    from app import site
+
+    positions = {"voyager_1": position(1432.5, earth_km=LIGHT_DAY_KM * 0.998), "voyager_2": position(1200.5)}
+    monkeypatch.setattr(site, "_snapshot", None)
+    monkeypatch.setattr(site, "get_position", lambda key: positions[key])
+    monkeypatch.setattr(site, "get_dsn_contact", lambda key: None)
+    return site
+
+
+def test_page_shows_the_same_update_as_the_email(page_data):
+    html = client.get("/").text
+    assert "Voyager, right now" in html
+    assert 'id="subscribe"' in html
+    emailed = build_update(
+        "voyager_1", "light_minute", position(1432.5, earth_km=LIGHT_DAY_KM * 0.998),
+        twin_name="Voyager 2", twin_position=position(1200.5),
+    )
+    for phrase in (
+        "Voyager 1", "Voyager 2", "Light-minute 1,432", "Light-minute 1,200",
+        "for its signal to reach Earth", "AU from the Sun", "From the Voyager archive",
+    ):
+        assert phrase in html
+    assert re_lead(emailed["html"]) in html
+    assert "cid:" not in html
+
+
+def re_lead(html):
+    import re
+
+    return re.search(r"font-size:15px;line-height:22px;[^>]*>([^<]+)<", html).group(1)
+
+
+def test_page_images_are_served(page_data):
+    html = client.get("/").text
+    assert client.get("/images/map/voyager_1.jpg").content[:2] == JPEG_START
+    for name in page_data.POSTCARD_IMAGES:
+        assert f"/images/postcards/{name}" in html or client.get(f"/images/postcards/{name}").status_code == 200
+    image = client.get("/images/postcards/golden-record.jpg")
+    assert image.status_code == 200
+    assert image.content[:2] == JPEG_START
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/images/map/voyager_3.jpg", "/images/postcards/secret.txt", "/images/postcards/..%2Fpostcards.py"],
+)
+def test_only_known_images_are_served(page_data, path):
+    assert client.get(path).status_code == 404
+
+
+def test_page_survives_nasa_being_unreachable(monkeypatch):
+    from app import site
+
+    monkeypatch.setattr(site, "_snapshot", None)
+    monkeypatch.setattr(site, "get_position", lambda key: None)
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "out of reach" in response.text
+    assert 'id="subscribe"' in response.text
+
+
+def test_page_keeps_old_data_during_an_outage(page_data, monkeypatch):
+    client.get("/")
+    before = page_data._snapshot
+    monkeypatch.setattr(page_data, "get_position", lambda key: None)
+    monkeypatch.setattr(page_data, "_snapshot", dict(before, fetched_at=0))
+    page_data._refresh_lock.acquire()
+    page_data._refresh_in_background()
+    assert page_data._snapshot["positions"] == before["positions"]
+    assert "Light-minute 1,432" in client.get("/").text
+
+
+@pytest.fixture
+def signup(db, monkeypatch):
+    main._signups_by_ip.clear()
+    main._signups_today.clear()
+    links = []
+    monkeypatch.setattr(main, "send_verification_email", lambda to, url: links.append((to, url)))
+    return links
+
+
+def test_form_signup_defaults_to_light_minutes(db, signup):
+    response = client.post("/register", json={"email": "form@example.com", "company": ""})
+    assert response.status_code == 202
+    assert db.query(User).filter_by(email="form@example.com").one().unit == "light_minute"
+    assert len(signup) == 1
+
+
+def test_existing_address_gets_the_same_answer_and_no_email(db, signup):
+    add_user(db, "known@example.com")
+    response = client.post("/register", json={"email": "known@example.com"})
+    assert response.status_code == 202
+    assert response.json()["message"] == main.CHECK_INBOX
+    assert signup == []
+
+
+def test_bots_filling_the_hidden_field_are_ignored(db, signup):
+    response = client.post("/register", json={"email": "bot@example.com", "company": "Acme"})
+    assert response.status_code == 202
+    assert db.query(User).filter_by(email="bot@example.com").count() == 0
+    assert signup == []
+
+
+def test_signups_are_limited_per_address(db, signup):
+    headers = {"fly-client-ip": "203.0.113.9"}
+    for i in range(main.SIGNUPS_PER_IP_PER_HOUR):
+        assert client.post("/register", json={"email": f"u{i}@example.com"}, headers=headers).status_code == 202
+    assert client.post("/register", json={"email": "more@example.com"}, headers=headers).status_code == 429
+    other = client.post("/register", json={"email": "other@example.com"}, headers={"fly-client-ip": "203.0.113.10"})
+    assert other.status_code == 202
+
+
+def test_signups_have_a_daily_ceiling(db, signup, monkeypatch):
+    monkeypatch.setattr(main, "SIGNUPS_PER_DAY", 2)
+    for i in range(2):
+        client.post("/register", json={"email": f"d{i}@example.com"}, headers={"fly-client-ip": f"203.0.113.{i}"})
+    response = client.post("/register", json={"email": "d3@example.com"}, headers={"fly-client-ip": "203.0.113.50"})
+    assert response.status_code == 429
