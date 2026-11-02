@@ -340,6 +340,26 @@ html:not(.js) .map-hint { display: none; }
 .journey-button { flex: 0 0 auto; min-width: 40px; min-height: 32px; padding: 0 10px; font: inherit; font-size: 13px; color: #f2f3fa; background: #181c3a; border: 1px solid #2a2f4f; border-radius: 7px; cursor: pointer; }
 .journey-button:hover { background: #2a2f4f; }
 .journey-button:focus-visible, .journey-controls input:focus-visible { outline: 2px solid #6fd3ff; outline-offset: 2px; }
+
+@media (min-width: 900px) {
+  .page {
+    padding: 20px 24px;
+    column-gap: 32px;
+    row-gap: 16px;
+    grid-template-columns: minmax(0, 1fr) 400px;
+    grid-template-areas: "intro signup" "content content";
+    align-items: center;
+  }
+  .signup-link { display: none; }
+  .toolbar { margin-bottom: 14px; }
+  .tabs { flex: 0 0 360px; }
+  .panel { gap: 14px; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); align-items: stretch; }
+  .signal { font-size: 42px; line-height: 48px; }
+  .progress { margin-top: auto; padding-top: 12px; }
+  .story { flex-direction: row; }
+  .story > img { width: 44%; aspect-ratio: auto; min-height: 100%; }
+  .story-text { flex: 1 1 0; min-width: 0; align-self: center; }
+}
 """
 
 SCRIPT = """
@@ -561,7 +581,7 @@ function draw() {
   c.textAlign = 'center';
   c.fillStyle = 'rgba(205, 188, 240, 0.9)';
   const edge = place(...positionAt(paths.voyager_1, todayDays()).map((v, i, all) => v / Math.hypot(...all) * 120));
-  c.fillText("Edge of the Sun's influence", edge[0], Math.max(16, edge[1] - 14));
+  if (width >= 480) c.fillText("Edge of the Sun's influence", edge[0], Math.max(16, edge[1] - 14));
 
   PLANETS.forEach(([, au]) => {
     c.strokeStyle = 'rgba(134, 146, 196, 0.32)';
@@ -570,12 +590,13 @@ function draw() {
     c.stroke();
   });
 
-  const glow = c.createRadialGradient(originX, originY, 1, originX, originY, 30);
+  const glowSize = Math.min(30, ring(1) * 1.2);
+  const glow = c.createRadialGradient(originX, originY, 1, originX, originY, glowSize);
   glow.addColorStop(0, 'rgba(255, 214, 140, 0.95)');
   glow.addColorStop(1, 'rgba(255, 190, 90, 0)');
   c.fillStyle = glow;
   c.beginPath();
-  c.arc(originX, originY, 30, 0, Math.PI * 2);
+  c.arc(originX, originY, glowSize, 0, Math.PI * 2);
   c.fill();
   c.fillStyle = '#fff1cf';
   c.beginPath();

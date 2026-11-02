@@ -602,3 +602,11 @@ def test_page_script_has_valid_syntax():
         pytest.skip("Node.js isn't available")
     result = subprocess.run(["node", "--check", "-"], input=site.SCRIPT, capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stderr
+
+
+def test_page_keeps_its_wide_screen_layout():
+    from app import site
+
+    assert "@media (min-width: 900px)" in site.STYLES
+    assert '"intro signup" "content content"' in site.STYLES
+    assert "minmax(0, 7fr) minmax(0, 5fr)" in site.STYLES
