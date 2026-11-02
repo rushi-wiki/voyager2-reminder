@@ -4,9 +4,9 @@ from collections import defaultdict, deque
 from html import escape
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, EmailStr
-from . import models, database
+from . import models, database, push
 from . import scheduler
 from . import site
 from sqlalchemy.orm import Session
@@ -61,6 +61,78 @@ class UserIn(BaseModel):
 @app.get("/", response_class=HTMLResponse)
 def home():
     return site.render_page()
+
+class PushKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+class PushIn(BaseModel):
+    endpoint: str
+    keys: PushKeys
+
+class PushOut(BaseModel):
+    endpoint: str
+
+@app.post("/push/subscribe", status_code=201)
+def push_subscribe(subscription: PushIn, request: Request):
+    if not push.enabled():
+        raise HTTPException(status_code=503, detail="Notifications aren't available right now.")
+    if not push.is_allowed_endpoint(subscription.endpoint):
+        raise HTTPException(status_code=400, detail="That browser's notification service isn't supported.")
+    ip = request.headers.get("fly-client-ip") or (request.client.host if request.client else "unknown")
+    if not _allow_signup(ip):
+        raise HTTPException(status_code=429, detail="Too many sign-ups right now. Try again later.")
+
+    db: Session = database.SessionLocal()
+    try:
+        saved = db.query(models.PushSubscription).filter_by(endpoint=subscription.endpoint).first()
+        if saved:
+            saved.p256dh = subscription.keys.p256dh
+            saved.auth = subscription.keys.auth
+        else:
+            saved = models.PushSubscription(
+                endpoint=subscription.endpoint,
+                p256dh=subscription.keys.p256dh,
+                auth=subscription.keys.auth,
+            )
+            db.add(saved)
+        db.commit()
+        # A real one straight away, so people know it works
+        try:
+            push.send(saved, "Notifications are on", "You'll hear when a Voyager passes each new light-minute.")
+        except Exception as e:
+            print(f"Welcome notification failed: {type(e).__name__}")
+            db.delete(saved)
+            db.commit()
+            raise HTTPException(status_code=502, detail="Could not reach your browser's notification service. Try again.")
+    finally:
+        db.close()
+    return {"message": "Notifications are on."}
+
+@app.post("/push/unsubscribe")
+def push_unsubscribe(subscription: PushOut):
+    db: Session = database.SessionLocal()
+    try:
+        db.query(models.PushSubscription).filter_by(endpoint=subscription.endpoint).delete()
+        db.commit()
+    finally:
+        db.close()
+    return {"message": "Notifications are off."}
+
+@app.get("/manifest.webmanifest")
+def manifest():
+    return JSONResponse(site.MANIFEST, media_type="application/manifest+json")
+
+@app.get("/sw.js")
+def service_worker():
+    # Never cached, so browsers always notice a new version of the app
+    return Response(site.SERVICE_WORKER, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+@app.get("/icons/{name}")
+def icon(name: str):
+    if name not in site.ICON_FILES:
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(site.ICON_DIR / name, media_type="image/png", headers={"Cache-Control": "public, max-age=604800"})
 
 @app.get("/api/latest")
 def latest():

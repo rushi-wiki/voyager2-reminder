@@ -1,6 +1,10 @@
+import bisect
 import io
+import json
 import math
 import random
+from datetime import date, datetime, timezone
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -19,6 +23,33 @@ PX_PER_SQRT_AU = 62
 # Planet orbits in AU. Voyager 1 crossed the heliopause at about 122 AU, Voyager 2 at about 119.
 ORBITS = [("Jupiter", 5.2), ("Saturn", 9.6), ("Uranus", 19.2), ("Neptune", 30.1)]
 HELIOPAUSE_AU = 120
+
+# Name, colour and size, matching the page's journey animation
+PLANETS = [
+    ("Earth", (111, 183, 255), 3),
+    ("Jupiter", (224, 177, 132), 5),
+    ("Saturn", (233, 210, 143), 4.5),
+    ("Uranus", (159, 227, 230), 4),
+    ("Neptune", (127, 156, 255), 4),
+]
+TRAJECTORIES = Path(__file__).parent / "trajectories.json"
+TRAJECTORY_EPOCH = date(1977, 8, 20)
+_planet_paths = None
+
+def _planet_position(name):
+    """Where a planet is today in AU, from JPL's data for the journey animation."""
+    global _planet_paths
+    if _planet_paths is None:
+        bodies = json.loads(TRAJECTORIES.read_text(encoding="utf-8"))["bodies"]
+        _planet_paths = {planet[0]: bodies[planet[0]] for planet in PLANETS}
+    body = _planet_paths[name]
+    day = (datetime.now(timezone.utc).date() - TRAJECTORY_EPOCH).days
+    i = min(max(bisect.bisect_right(body["t"], day), 1), len(body["t"]) - 1)
+    f = (day - body["t"][i - 1]) / (body["t"][i] - body["t"][i - 1])
+    return (
+        body["x"][i - 1] + (body["x"][i] - body["x"][i - 1]) * f,
+        body["y"][i - 1] + (body["y"][i] - body["y"][i - 1]) * f,
+    )
 
 def _font(size):
     return ImageFont.load_default(size * SCALE)
@@ -132,10 +163,6 @@ def render_map(active_name, active_position, active_color, twin_name=None, twin_
     for name, orbit_au in ORBITS:
         radius = _radius(orbit_au)
         draw.ellipse((sun_x - radius, sun_y - radius, sun_x + radius, sun_y + radius), outline=RING, width=SCALE)
-        draw.text(
-            (sun_x + radius * math.cos(-0.72), sun_y - radius * math.sin(-0.72) + 4 * SCALE),
-            name, fill=LABEL, font=_font(21), anchor="lt",
-        )
 
     radius = _radius(HELIOPAUSE_AU)
     _dashed_circle(draw, sun_x, sun_y, radius, (140, 118, 190), SCALE)
@@ -149,6 +176,17 @@ def render_map(active_name, active_position, active_color, twin_name=None, twin_
     _sun(image, sun_x, sun_y)
     draw = ImageDraw.Draw(image)
     draw.text((sun_x, sun_y + earth + 6 * SCALE), "Sun and Earth", fill=LABEL, font=_font(21), anchor="mt")
+
+    for name, color, size in PLANETS:
+        x_au, y_au = _planet_position(name)
+        angle = math.atan2(y_au, x_au) - longitude + active_angle
+        radius = _radius(math.hypot(x_au, y_au))
+        x = sun_x + radius * math.cos(angle)
+        y = sun_y - radius * math.sin(angle)
+        dot = size * 1.5 * SCALE
+        draw.ellipse((x - dot, y - dot, x + dot, y + dot), fill=color)
+        if name != "Earth":
+            draw.text((x + dot + 3 * SCALE, y), name, fill=LABEL, font=_font(21), anchor="lm")
 
     if twin:
         draw = _craft(image, draw, sun_x, sun_y, twin_angle, twin[0], twin_name, MUTED_CRAFT, False)

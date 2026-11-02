@@ -587,7 +587,7 @@ def test_page_offers_the_journey_without_loading_it_up_front(page_data):
     html = client.get("/").text
     assert 'id="journey"' in html
     assert "<dialog" not in html
-    assert html.count("Press the map to watch the journey") == 2
+    assert html.count('title="Press the map to watch the journey"') == 2
     assert "Watch the real journey" not in html
     assert "voyager_1" in html and '"t":[' not in html
 
@@ -617,6 +617,7 @@ def test_light_is_the_default_with_a_dark_switch(page_data):
     assert "prefers-color-scheme" not in html
     assert ':root[data-theme="dark"]' in html
     assert 'id="theme-toggle"' in html
+    assert "Dark mode<" not in html
 
 
 def test_map_tile_keeps_one_size_when_the_journey_plays():
@@ -634,3 +635,201 @@ def test_animation_uses_the_same_geometry_as_the_map_picture():
     assert f"const MAP_HEIGHT = {visuals.HEIGHT};" in site.SCRIPT
     assert f"const MAP_SUN_X = {visuals.SUN_X};" in site.SCRIPT
     assert f"const MAP_PX_PER_SQRT_AU = {visuals.PX_PER_SQRT_AU};" in site.SCRIPT
+
+
+def test_the_app_can_be_installed(page_data):
+    html = client.get("/").text
+    assert 'rel="manifest"' in html
+    manifest = client.get("/manifest.webmanifest")
+    assert manifest.headers["content-type"].startswith("application/manifest+json")
+    data = manifest.json()
+    assert data["display"] == "standalone"
+    sizes = {icon["sizes"] for icon in data["icons"]}
+    assert {"192x192", "512x512"} <= sizes
+    for icon in data["icons"]:
+        response = client.get(icon["src"])
+        assert response.status_code == 200
+        assert response.content[:4] == b"\x89PNG"
+    worker = client.get("/sw.js")
+    assert "javascript" in worker.headers["content-type"]
+    assert worker.headers["cache-control"] == "no-cache"
+    assert client.get("/icons/secret.txt").status_code == 404
+
+
+def test_page_scripts_have_valid_syntax_including_the_worker():
+    import shutil
+    import subprocess
+
+    from app import site
+
+    if not shutil.which("node"):
+        pytest.skip("Node.js isn't available")
+    result = subprocess.run(["node", "--check", "-"], input=site.SERVICE_WORKER, capture_output=True, text=True, encoding="utf-8")
+    assert result.returncode == 0, result.stderr
+
+
+def test_controls_are_icons_with_labels_for_screen_readers(page_data):
+    html = client.get("/").text
+    assert 'id="journey-play" data-state="play" aria-label="Play"' in html
+    assert 'aria-label="Subscribe"' in html
+    assert ">Subscribe<" not in html
+    assert ">Pause<" not in html
+
+
+def test_year_comes_first_so_it_never_shifts(page_data):
+    html = client.get("/").text
+    assert '<span id="journey-year"></span><span id="journey-month"></span>' in html
+
+
+def test_the_journey_starts_at_zero_with_no_rewind():
+    from app import site
+
+    assert "rewind" not in site.SCRIPT.lower()
+    assert "progress = stillOnly ? 1 : 0;" in site.SCRIPT
+
+
+@pytest.fixture
+def push_on(db, monkeypatch):
+    from app import models, push
+
+    db.query(models.PushSubscription).delete()
+    db.query(models.PushState).delete()
+    db.commit()
+    main._signups_by_ip.clear()
+    main._signups_today.clear()
+    monkeypatch.setattr(push, "VAPID_PUBLIC_KEY", "public")
+    monkeypatch.setattr(push, "VAPID_PRIVATE_KEY", "private")
+    sent = []
+    monkeypatch.setattr(push, "send", lambda subscription, title, body: sent.append((subscription.endpoint, title, body)) or True)
+    return sent
+
+
+PUSH_BODY = {"endpoint": "https://fcm.googleapis.com/fcm/send/abc", "keys": {"p256dh": "k", "auth": "a"}}
+
+
+def test_subscribing_to_notifications_sends_a_welcome(db, push_on):
+    from app import models
+
+    assert client.post("/push/subscribe", json=PUSH_BODY).status_code == 201
+    assert db.query(models.PushSubscription).count() == 1
+    assert push_on[0][1] == "Notifications are on"
+    assert client.post("/push/subscribe", json=PUSH_BODY).status_code == 201
+    db.expire_all()
+    assert db.query(models.PushSubscription).count() == 1
+    assert client.post("/push/unsubscribe", json={"endpoint": PUSH_BODY["endpoint"]}).status_code == 200
+    db.expire_all()
+    assert db.query(models.PushSubscription).count() == 0
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://fcm.googleapis.com/x",
+        "https://evil.example.com/x",
+        "https://fcm.googleapis.com.evil.example/x",
+        "https://169.254.169.254/latest",
+        "https://localhost/x",
+    ],
+)
+def test_notifications_only_go_to_real_push_services(db, push_on, endpoint):
+    response = client.post("/push/subscribe", json=dict(PUSH_BODY, endpoint=endpoint))
+    assert response.status_code == 400
+    assert push_on == []
+
+
+def test_notifications_fire_once_per_light_minute_and_ignore_old_news(db, push_on):
+    from app import models, push
+
+    db.add(models.PushSubscription(endpoint=PUSH_BODY["endpoint"], p256dh="k", auth="a"))
+    db.commit()
+    push.notify_subscribers(db, "voyager_1", position(1432.5))
+    assert push_on == []
+    push.notify_subscribers(db, "voyager_1", position(1432.9))
+    assert push_on == []
+    push.notify_subscribers(db, "voyager_1", position(1433.1))
+    assert [m[1] for m in push_on] == ["Voyager 1 passed light-minute 1,433"]
+    push.notify_subscribers(db, "voyager_1", position(1433.2))
+    assert len(push_on) == 1
+
+
+def test_light_day_notification_fires_once_despite_earth_dip(db, push_on):
+    from app import models, push
+
+    db.add(models.PushSubscription(endpoint=PUSH_BODY["endpoint"], p256dh="k", auth="a"))
+    db.commit()
+    push.notify_subscribers(db, "voyager_1", position(1432.1, earth_km=LIGHT_DAY_KM * 0.999))
+    push.notify_subscribers(db, "voyager_1", position(1432.2, earth_km=LIGHT_DAY_KM * 1.0001))
+    assert [m[1] for m in push_on] == ["Voyager 1 is now one light-day from Earth"]
+    push.notify_subscribers(db, "voyager_1", position(1432.3, earth_km=LIGHT_DAY_KM * 0.9999))
+    push.notify_subscribers(db, "voyager_1", position(1432.4, earth_km=LIGHT_DAY_KM * 1.0002))
+    assert len(push_on) == 1
+
+
+def test_gone_browsers_are_removed(db, push_on, monkeypatch):
+    from app import models, push
+
+    db.add(models.PushSubscription(endpoint=PUSH_BODY["endpoint"], p256dh="k", auth="a"))
+    db.commit()
+    push.notify_subscribers(db, "voyager_1", position(1432.5))
+    monkeypatch.setattr(push, "send", lambda subscription, title, body: False)
+    push.notify_subscribers(db, "voyager_1", position(1433.5))
+    assert db.query(models.PushSubscription).count() == 0
+
+
+def test_a_broken_notification_never_stops_the_emails(db, sent, monkeypatch):
+    from app import push
+
+    add_user(db)
+    def boom(*args):
+        raise RuntimeError("push service down")
+    monkeypatch.setattr(push, "notify_subscribers", boom)
+    run_check(monkeypatch, position(1432.5))
+    assert len(sent) == 1
+
+
+def test_real_encryption_works_with_generated_keys(monkeypatch):
+    # The real library and real keys, stopping only at the network
+    import base64
+    from types import SimpleNamespace
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    from app import push
+
+    def b64(data):
+        return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+    server = ec.generate_private_key(ec.SECP256R1())
+    raw = server.private_numbers().private_value.to_bytes(32, "big")
+    browser = ec.generate_private_key(ec.SECP256R1()).public_key().public_bytes(
+        serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint
+    )
+    monkeypatch.setattr(push, "VAPID_PRIVATE_KEY", b64(raw))
+    posted = []
+
+    class FakeResponse:
+        status_code = 201
+        text = ""
+        headers = {}
+
+    def fake_post(url, data=None, headers=None, timeout=None):
+        posted.append((url, data, headers))
+        return FakeResponse()
+
+    import requests
+    monkeypatch.setattr(requests, "post", fake_post)
+    subscription = SimpleNamespace(endpoint=PUSH_BODY["endpoint"], p256dh=b64(browser), auth=b64(b"0123456789abcdef"))
+    assert push.send(subscription, "Title", "Body") is True
+    url, data, headers = posted[0]
+    assert url == PUSH_BODY["endpoint"]
+    assert headers["content-encoding"] == "aes128gcm"
+    assert headers["authorization"].startswith("vapid ")
+    assert b"Title" not in data
+
+
+def test_map_picture_uses_the_animations_planets():
+    from app import visuals
+
+    x, y = visuals._planet_position("Neptune")
+    assert 29 < (x * x + y * y) ** 0.5 < 31

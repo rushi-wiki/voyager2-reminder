@@ -1,5 +1,6 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from .distance_fetcher import SPACECRAFT, get_dsn_contact, get_position
+from . import push
 from .database import SessionLocal
 from .models import Subscription, User
 from .emailer import DISTANCE_UNITS, LIGHT_DAY_KM, build_update, send_update, unsubscribe_url_for
@@ -33,6 +34,13 @@ def check_and_notify():
                 continue
             twin_key = next(k for k in SPACECRAFT if k != key)
             contact = get_dsn_contact(key)
+
+            # Notifications must never get in the way of the emails
+            try:
+                push.notify_subscribers(db, key, position)
+            except Exception as e:
+                db.rollback()
+                print(f"Notifications failed: {type(e).__name__}")
 
             subscriptions = (
                 db.query(Subscription)

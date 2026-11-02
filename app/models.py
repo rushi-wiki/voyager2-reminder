@@ -46,3 +46,17 @@ def backfill_subscriptions(db):
             user.unit = "light_minute"
         subscribe_to_all(user)
     db.commit()
+
+class PushSubscription(Base):
+    __tablename__ = "push_subscriptions"
+    id = Column(Integer, primary_key=True, index=True)
+    endpoint = Column(String, unique=True, index=True, nullable=False)
+    p256dh = Column(String, nullable=False)
+    auth = Column(String, nullable=False)
+
+class PushState(Base):
+    """What notification subscribers last heard about each spacecraft."""
+    __tablename__ = "push_state"
+    spacecraft = Column(String, primary_key=True)
+    last_km = Column(Float, nullable=False)  # distance from the Sun
+    farthest_earth_km = Column(Float, nullable=False)

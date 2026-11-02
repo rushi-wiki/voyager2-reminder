@@ -7,3 +7,4 @@ email-validator
 aiofiles
 requests
 pillow
+pywebpush

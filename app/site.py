@@ -6,6 +6,7 @@ from html import escape
 from pathlib import Path
 
 from .distance_fetcher import SPACECRAFT, get_dsn_contacts, get_position
+from .push import VAPID_PUBLIC_KEY
 from .emailer import STYLE, build_content, light_day_progress
 from .postcards import POSTCARDS
 from .visuals import render_map
@@ -22,6 +23,89 @@ _snapshot = None
 _refresh_lock = threading.Lock()
 
 TRAJECTORIES = Path(__file__).parent / "trajectories.json"
+ICON_DIR = Path(__file__).parent / "icons"
+ICON_FILES = {"icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png", "favicon-32.png"}
+
+MANIFEST = {
+    "name": "Voyager, right now",
+    "short_name": "Voyager",
+    "description": "Where Voyager 1 and Voyager 2 are today, from live NASA data.",
+    "id": "/",
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "background_color": "#070913",
+    "theme_color": "#070913",
+    "icons": [
+        {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+        {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+        {"src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+    ],
+}
+
+# Always prefers fresh data, and falls back to the last copy when offline
+SERVICE_WORKER = """
+const CACHE = 'voyager-v1';
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => {
+  event.waitUntil((async () => {
+    const names = await caches.keys();
+    await Promise.all(names.filter((name) => name !== CACHE).map((name) => caches.delete(name)));
+    await self.clients.claim();
+  })());
+});
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'GET' || url.origin !== location.origin) return;
+  event.respondWith((async () => {
+    try {
+      const response = await fetch(event.request);
+      if (response.ok) {
+        const cache = await caches.open(CACHE);
+        // Today's map has a new address each refresh, so keep one copy of each picture
+        await cache.put(url.pathname.startsWith('/images/map/') ? url.pathname : event.request, response.clone());
+      }
+      return response;
+    } catch (error) {
+      const cached = await caches.match(url.pathname.startsWith('/images/map/') ? url.pathname : event.request);
+      return cached || (await caches.match('/')) || Response.error();
+    }
+  })());
+});
+self.addEventListener('push', (event) => {
+  const data = event.data ? event.data.json() : {};
+  event.waitUntil(self.registration.showNotification(data.title || 'Voyager', {
+    body: data.body || '',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    data: {url: data.url || '/'},
+  }));
+});
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({type: 'window', includeUncontrolled: true});
+    if (windows.length) return windows[0].focus();
+    return self.clients.openWindow(event.notification.data.url);
+  })());
+});
+"""
+
+def _icon(paths, name=""):
+    extra = f" icon-{name}" if name else ""
+    return f'<svg class="icon{extra}" viewBox="0 0 24 24" aria-hidden="true">{paths}</svg>'
+
+ICON_PLAY = '<path d="M7 4.5v15l12-7.5z" fill="currentColor"/>'
+ICON_PAUSE = '<path d="M8 5v14M16 5v14"/>'
+ICON_REPLAY = '<path d="M4 12a8 8 0 1 0 2.5-5.8L4 8.5"/><path d="M4 4v4.5h4.5"/>'
+ICON_CLOSE = '<path d="M6 6l12 12M18 6L6 18"/>'
+ICON_MOON = '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/>'
+ICON_SUN = '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>'
+ICON_BELL = '<path d="M18 16V11a6 6 0 0 0-12 0v5l-2 2.5h16z"/><path d="M10 21.5a2.2 2.2 0 0 0 4 0"/>'
+ICON_BELL_ON = '<path d="M18 16V11a6 6 0 0 0-12 0v5l-2 2.5h16z" fill="currentColor"/><path d="M10 21.5a2.2 2.2 0 0 0 4 0"/>'
+ICON_MAIL = '<rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3.5 7l8.5 6.5L20.5 7"/>'
+ICON_SEND = '<path d="M4 12h14M12.5 6l6 6-6 6"/>'
+ICON_INSTALL = '<path d="M12 3.5v12M7 11l5 5 5-5"/><path d="M4.5 20.5h15"/>'
 
 POSTCARD_IMAGES = {card["image"] for cards in POSTCARDS.values() for card in cards}
 
@@ -156,7 +240,7 @@ def _panel(key, content, position, snapshot, active):
         <img src="/images/map/{key}.jpg?v={version}" width="1120" height="620" alt="Map showing {escape(content['name'])} and its twin far beyond the planets, at {content['au']:.1f} AU from the Sun">
       </button>
     </div>
-    <div class="map-band"><span class="map-hint">Press the map to watch the journey</span></div>
+    <div class="map-band"><span class="map-hint" title="Press the map to watch the journey">{_icon(ICON_PLAY)}</span></div>
   </figure>
   <section class="tile readout">
     <p class="eyebrow"><strong>{escape(content['name'])}</strong> &middot; {escape(content['unit_label'].capitalize())} {content['count']:,} from the Sun</p>
@@ -252,21 +336,32 @@ p, h1, h2, h3, figure { margin: 0; }
 }
 .intro { grid-area: intro; }
 .title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.theme-toggle { flex: 0 0 auto; min-height: 34px; padding: 0 12px; font: inherit; font-size: 13px; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
-.theme-toggle:hover { background: var(--panel); }
-.theme-toggle:focus-visible { outline: 2px solid var(--voyager-2); outline-offset: 2px; }
-html:not(.js) .theme-toggle { display: none; }
+.icon { display: block; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.header-actions { display: flex; flex: 0 0 auto; gap: 6px; }
+.icon-button { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 9px; cursor: pointer; }
+.icon-button:hover { background: var(--panel); }
+.icon-button:focus-visible { outline: 2px solid var(--voyager-2); outline-offset: 2px; }
+.icon-button[hidden] { display: none; }
+html:not(.js) .js-only { display: none; }
+.icon-moon { display: block; }
+.icon-sun { display: none; }
+:root[data-theme="dark"] .icon-moon { display: none; }
+:root[data-theme="dark"] .icon-sun { display: block; }
+.icon-bell-on { display: none; }
+#push-toggle[aria-pressed="true"] { color: var(--voyager-2); }
+#push-toggle[aria-pressed="true"] .icon-bell-off { display: none; }
+#push-toggle[aria-pressed="true"] .icon-bell-on { display: block; }
+.notice { margin-top: 6px; font-size: 13px; line-height: 18px; color: var(--soft); }
+.notice:empty { display: none; }
 h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: normal; font-size: 28px; line-height: 34px; }
 .intro p { margin-top: 3px; color: var(--soft); font-size: 14px; line-height: 20px; }
-.signup-link { display: inline-block; margin-top: 4px; color: var(--text); font-size: 14px; line-height: 24px; }
 .content { grid-area: content; min-width: 0; }
 
 .subscribe { grid-area: signup; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; scroll-margin-top: 12px; }
 .subscribe label { display: block; font-size: 13px; line-height: 18px; color: var(--soft); margin-bottom: 7px; }
-.subscribe label strong { color: var(--text); }
 .fields { display: flex; gap: 8px; }
 .subscribe input[type=email] { flex: 1 1 auto; min-width: 0; height: 38px; padding: 0 11px; font: inherit; font-size: 14px; color: var(--text); background: var(--background); border: 1px solid var(--line); border-radius: 8px; }
-.subscribe button { flex: 0 0 auto; height: 38px; padding: 0 15px; font: inherit; font-size: 14px; font-weight: 600; color: var(--button-text); background: var(--button); border: 0; border-radius: 8px; cursor: pointer; }
+.subscribe button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 44px; height: 38px; padding: 0; color: var(--button-text); background: var(--button); border: 0; border-radius: 8px; cursor: pointer; }
 .subscribe button:disabled { opacity: 0.6; cursor: default; }
 .message { margin-top: 7px; font-size: 13px; line-height: 18px; color: var(--soft); }
 .message:empty { display: none; }
@@ -333,25 +428,28 @@ html:not(.js) .map-trigger { cursor: default; }
 .map-trigger:focus-visible { outline: 2px solid #6fd3ff; outline-offset: -3px; }
 .map-trigger img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .map-band { position: relative; flex: 0 0 46px; background: #070913; border-top: 1px solid #1c2040; }
-.map-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #dfe3f5; pointer-events: none; transition: opacity 0.6s ease; }
+.map-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #dfe3f5; pointer-events: none; transition: opacity 0.6s ease; }
 html:not(.js) .map-band { display: none; }
 .map.playing .map-hint { opacity: 0; }
 .journey { position: absolute; inset: 0; z-index: 1; color: #f2f3fa; opacity: 0; transition: opacity 0.7s ease; }
 .journey.visible { opacity: 1; }
 .journey[hidden], .journey-controls[hidden] { display: none; }
 .journey canvas { display: block; position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; }
-.journey-readout { position: absolute; top: 8px; left: 12px; right: 12px; pointer-events: none; text-shadow: 0 1px 4px #000, 0 0 8px #070913; opacity: 0; transition: opacity 0.5s ease; }
-.journey-readout.shown { opacity: 1; }
-#journey-date { font-family: Georgia, 'Times New Roman', serif; font-size: 18px; line-height: 23px; }
+.journey-readout { position: absolute; top: 8px; left: 12px; right: 12px; pointer-events: none; text-shadow: 0 1px 4px #000, 0 0 8px #070913; }
+#journey-date { display: flex; align-items: baseline; gap: 8px; font-family: Georgia, 'Times New Roman', serif; font-variant-numeric: lining-nums tabular-nums; line-height: 23px; }
+#journey-year { font-size: 18px; }
+#journey-month { font-size: 13px; color: #d4d8ea; }
 #journey-caption { max-width: 360px; font-size: 12px; line-height: 16px; color: #d4d8ea; }
 .journey-controls { position: absolute; inset: 0; display: flex; align-items: center; gap: 8px; padding: 0 8px; opacity: 0; transition: opacity 0.6s ease; }
 .journey-controls.visible { opacity: 1; }
 .journey-controls input { flex: 1 1 auto; min-width: 0; height: 28px; accent-color: #f4b860; }
-.journey-button { flex: 0 0 auto; min-width: 40px; min-height: 32px; padding: 0 10px; font: inherit; font-size: 13px; color: #f2f3fa; background: #181c3a; border: 1px solid #2a2f4f; border-radius: 7px; cursor: pointer; }
+.journey-button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 40px; height: 34px; padding: 0; color: #f2f3fa; background: #181c3a; border: 1px solid #2a2f4f; border-radius: 7px; cursor: pointer; }
 .journey-button:hover { background: #2a2f4f; }
+#journey-play .icon { display: none; }
+#journey-play[data-state="play"] .icon-play, #journey-play[data-state="pause"] .icon-pause, #journey-play[data-state="replay"] .icon-replay { display: block; }
 .journey-button:focus-visible, .journey-controls input:focus-visible { outline: 2px solid #6fd3ff; outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
-  .journey, .journey-readout, .journey-controls, .map-hint { transition: none; }
+  .journey, .journey-controls, .map-hint { transition: none; }
 }
 
 @media (min-width: 900px) {
@@ -470,23 +568,22 @@ if (latest) {
 }
 
 // Pressing the map plays the journey in its place. Its data only downloads then.
-// It draws with the map picture's exact geometry, so nothing moves or changes size:
-// it opens on today's positions, rewinds to 1977, then plays forward.
+// It draws with the map picture's exact geometry, so the Sun, the orbits and the frame
+// stay put, and it finishes with everything where the picture shows it today.
 const journey = document.getElementById('journey');
 const controls = document.getElementById('journey-controls');
-const readout = document.getElementById('journey-readout');
 const canvas = document.getElementById('journey-canvas');
 const scrub = document.getElementById('journey-scrub');
 const playButton = document.getElementById('journey-play');
-const dateText = document.getElementById('journey-date');
+const yearText = document.getElementById('journey-year');
+const monthText = document.getElementById('journey-month');
 const captionText = document.getElementById('journey-caption');
 const EPOCH = Date.UTC(1977, 7, 20);
 const DAY_MS = 86400000;
 const WARP_DAYS = (Date.UTC(1990, 5, 1) - EPOCH) / DAY_MS;
 const WARP_AT = 0.62; // The busy years of flybys get most of the running time
 const RUN_MS = 42000;
-const FADE_MS = 700;
-const REWIND_MS = 1800;
+const FADE_MS = 600;
 const CAPTION_HOLD_MS = 2600; // Long enough to read, even when events fall close together
 const CAPTION_LIMIT_MS = 5000;
 // The map picture's geometry, from visuals.py
@@ -517,8 +614,6 @@ const CRAFT = [['voyager_1', 'Voyager 1', '#f4b860'], ['voyager_2', 'Voyager 2',
 let paths = null;
 let progress = 1;
 let playing = false;
-let rewinding = false;
-let rewindStart = 0;
 let lastFrame = 0;
 let view = null;
 let journeyMap = null;
@@ -549,14 +644,18 @@ function captionAt(p) {
   });
   return caption;
 }
-// Months would flicker past, so the date moves in readable steps
+// Months would flicker past, so the date moves in readable steps. The year comes
+// first, in one fixed spot, and only the small month beside it changes.
 function dateLabelAt(p) {
-  if (p >= 1) return new Date().toLocaleDateString('en-GB', {month: 'long', year: 'numeric', timeZone: 'UTC'});
+  if (p >= 1) {
+    const today = new Date();
+    return [String(today.getUTCFullYear()), today.toLocaleDateString('en-GB', {month: 'long', timeZone: 'UTC'})];
+  }
   const date = new Date(EPOCH + dayAt(p) * DAY_MS);
   const year = date.getUTCFullYear();
-  if (year === 1977) return 'August 1977';
-  if (year < 1990) return `${date.getUTCMonth() < 6 ? 'January' : 'July'} ${year}`;
-  return String(year - year % 5);
+  if (year === 1977) return ['1977', 'August'];
+  if (year < 1990) return [String(year), date.getUTCMonth() < 6 ? 'January' : 'July'];
+  return [String(year - year % 5), ''];
 }
 function positionAt(body, day) {
   const t = body.t;
@@ -628,6 +727,9 @@ function draw() {
   c.textAlign = 'right';
   c.fillStyle = 'rgba(205, 188, 240, 0.95)';
   c.fillText("Edge of the Sun's influence", originX + ring(120) - 10 * s, originY + small / 3);
+  c.textAlign = 'center';
+  c.fillStyle = 'rgba(222, 226, 245, 0.88)';
+  c.fillText('Sun and Earth', originX, originY + ring(1) + 6 * s + small);
 
   PLANETS.forEach(([, au]) => {
     c.strokeStyle = 'rgba(134, 146, 196, 0.42)';
@@ -709,13 +811,19 @@ function draw() {
     c.textAlign = 'left';
   });
 
-  dateText.textContent = dateLabelAt(progress);
+  const [yearLabel, monthLabel] = dateLabelAt(progress);
+  yearText.textContent = yearLabel;
+  monthText.textContent = monthLabel;
   captionText.textContent = captionAt(progress);
   scrub.value = Math.round(progress * 1000);
 }
 function setPlaying(value) {
   playing = value;
-  playButton.textContent = value ? 'Pause' : (progress >= 1 ? 'Replay' : 'Play');
+  const state = value ? 'pause' : (progress >= 1 ? 'replay' : 'play');
+  playButton.dataset.state = state;
+  const label = {pause: 'Pause', replay: 'Replay', play: 'Play'}[state];
+  playButton.setAttribute('aria-label', label);
+  playButton.title = label;
   if (value) {
     lastFrame = performance.now();
     requestAnimationFrame(frame);
@@ -723,41 +831,30 @@ function setPlaying(value) {
 }
 function frame(now) {
   if (!playing || !journeyMap) return;
-  if (rewinding) {
-    const t = Math.min(1, (now - rewindStart) / REWIND_MS);
-    progress = 1 - t * t * (3 - 2 * t);
-    if (t >= 1) {
-      rewinding = false;
-      progress = 0;
-      readout.classList.add('shown');
-    }
-  } else {
-    progress = Math.min(1, progress + (now - lastFrame) / RUN_MS);
-  }
+  progress = Math.min(1, progress + (now - lastFrame) / RUN_MS);
   lastFrame = now;
   draw();
-  if (progress >= 1 && !rewinding) setPlaying(false); else requestAnimationFrame(frame);
+  if (progress >= 1) setPlaying(false); else requestAnimationFrame(frame);
 }
 function cancelStart() {
   clearTimeout(startTimer);
   startTimer = null;
-  rewinding = false;
 }
 async function openJourney(map) {
   if (loading || journeyMap === map) return;
   if (!paths) {
     // The map stays in place until there is something ready to fade in
     const hint = map.querySelector('.map-hint');
-    const original = hint.textContent;
-    hint.textContent = 'Loading the journey...';
+    const original = hint.innerHTML;
+    hint.textContent = 'Loading...';
     loading = true;
     try {
       const response = await fetch('/trajectories.json');
       if (!response.ok) throw new Error('unavailable');
       paths = (await response.json()).bodies;
-      hint.textContent = original;
+      hint.innerHTML = original;
     } catch (error) {
-      hint.textContent = 'The journey could not load. Press the map to try again.';
+      hint.textContent = 'Could not load. Press the map to try again.';
       return;
     } finally {
       loading = false;
@@ -770,23 +867,19 @@ async function openJourney(map) {
   map.querySelector('.map-band').append(controls);
   journey.hidden = false;
   controls.hidden = false;
-  // Start on today, which matches the picture underneath, so the fade shows no jump
-  progress = 1;
+  // Without motion, show today's positions and let people drag through time
+  const stillOnly = reducedMotion();
+  progress = stillOnly ? 1 : 0;
   makeView();
   draw();
   void journey.offsetWidth; // Let the browser see the hidden state, so the fades run
   journey.classList.add('visible');
   controls.classList.add('visible');
   setPlaying(false);
-  if (reducedMotion()) {
-    readout.classList.add('shown');
-    return;
-  }
-  playButton.textContent = 'Pause';
+  if (stillOnly) return;
+  playButton.dataset.state = 'pause';
   startTimer = setTimeout(() => {
     startTimer = null;
-    rewinding = true;
-    rewindStart = performance.now();
     setPlaying(true);
   }, FADE_MS);
 }
@@ -796,7 +889,6 @@ window.stopJourney = function (immediately) {
   setPlaying(false);
   journey.classList.remove('visible');
   controls.classList.remove('visible');
-  readout.classList.remove('shown');
   journeyMap.classList.remove('playing');
   journeyMap = null;
   clearTimeout(hideTimer);
@@ -808,15 +900,9 @@ window.stopJourney = function (immediately) {
   else hideTimer = setTimeout(hide, FADE_MS);
 };
 function togglePlaying() {
-  const wasStarting = startTimer !== null || rewinding;
+  const wasStarting = startTimer !== null;
   cancelStart();
-  readout.classList.add('shown');
-  if (wasStarting) {
-    // Pressing during the opening stops there, on whichever moment is showing
-    setPlaying(false);
-    return;
-  }
-  if (playing) return setPlaying(false);
+  if (wasStarting || playing) return setPlaying(false);
   if (progress >= 1) progress = 0;
   setPlaying(true);
 }
@@ -835,7 +921,6 @@ document.addEventListener('keydown', (event) => {
 playButton.addEventListener('click', togglePlaying);
 scrub.addEventListener('input', () => {
   cancelStart();
-  readout.classList.add('shown');
   progress = Number(scrub.value) / 1000;
   setPlaying(false);
   draw();
@@ -851,7 +936,9 @@ new ResizeObserver(() => {
 // Light for everyone unless they choose dark, and remembered if they do
 const themeToggle = document.getElementById('theme-toggle');
 function showThemeLabel() {
-  themeToggle.textContent = document.documentElement.dataset.theme === 'dark' ? 'Light mode' : 'Dark mode';
+  const label = document.documentElement.dataset.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+  themeToggle.setAttribute('aria-label', label);
+  themeToggle.title = label;
 }
 themeToggle.addEventListener('click', () => {
   const dark = document.documentElement.dataset.theme !== 'dark';
@@ -865,6 +952,83 @@ themeToggle.addEventListener('click', () => {
   showThemeLabel();
 });
 showThemeLabel();
+
+// Installing as an app, for browsers that offer it
+const notice = document.getElementById('notice');
+const installButton = document.getElementById('install-app');
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (event) => {
+  event.preventDefault();
+  installPrompt = event;
+  installButton.hidden = false;
+});
+installButton.addEventListener('click', async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice;
+  installPrompt = null;
+  installButton.hidden = true;
+});
+window.addEventListener('appinstalled', () => { installButton.hidden = true; });
+
+// Notifications. The bell only appears when the server has its keys.
+const pushToggle = document.getElementById('push-toggle');
+const pushKey = pushToggle.dataset.key;
+let worker = null;
+function showPushState(on) {
+  pushToggle.setAttribute('aria-pressed', on);
+  const label = on ? 'Turn off notifications' : 'Turn on notifications';
+  pushToggle.setAttribute('aria-label', label);
+  pushToggle.title = label;
+}
+function keyBytes(key) {
+  const text = atob((key + '='.repeat((4 - key.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(text, (character) => character.charCodeAt(0));
+}
+async function togglePush() {
+  notice.textContent = '';
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  if (!('PushManager' in window) || !worker) {
+    notice.textContent = /iPhone|iPad/.test(navigator.userAgent) && !standalone
+      ? 'On iPhone, first add this page to your Home Screen, then open it from there.'
+      : "This browser doesn't support notifications.";
+    return;
+  }
+  pushToggle.disabled = true;
+  try {
+    const existing = await worker.pushManager.getSubscription();
+    if (existing) {
+      await fetch('/push/unsubscribe', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({endpoint: existing.endpoint})});
+      await existing.unsubscribe();
+      showPushState(false);
+    } else {
+      if (await Notification.requestPermission() !== 'granted') {
+        notice.textContent = 'Notifications are blocked. You can allow them in your browser settings.';
+        return;
+      }
+      const subscription = await worker.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: keyBytes(pushKey)});
+      const response = await fetch('/push/subscribe', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(subscription)});
+      if (!response.ok) {
+        await subscription.unsubscribe();
+        const data = await response.json().catch(() => ({}));
+        notice.textContent = data.detail || 'That did not work. Try again in a moment.';
+        return;
+      }
+      showPushState(true);
+    }
+  } catch (error) {
+    notice.textContent = 'That did not work. Try again in a moment.';
+  } finally {
+    pushToggle.disabled = false;
+  }
+}
+pushToggle.addEventListener('click', togglePush);
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').then(async (registration) => {
+    worker = registration;
+    if (registration.pushManager) showPushState(Boolean(await registration.pushManager.getSubscription()));
+  }).catch(() => {});
+}
 
 const form = document.getElementById('subscribe');
 const message = document.getElementById('message');
@@ -903,6 +1067,7 @@ def render_page():
         body = '<p class="unavailable">NASA\'s data is out of reach right now. Check back soon.</p>'
 
     latest = json.dumps(latest_data()).replace("<", "\\u003c")
+    push_key = escape(VAPID_PUBLIC_KEY)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -911,6 +1076,12 @@ def render_page():
 <title>Voyager, right now</title>
 <meta name="description" content="Where Voyager 1 and Voyager 2 are today, from live NASA data. Subscribe to get an email as they travel farther.">
 <style>{STYLES}</style>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="theme-color" content="#070913">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Voyager">
 <script>
 document.documentElement.classList.add('js');
 try {{
@@ -921,17 +1092,22 @@ try {{
 <body>
 <main class="page">
 <header class="intro">
-<div class="title-row"><h1>Voyager, right now</h1><button type="button" class="theme-toggle" id="theme-toggle">Dark mode</button></div>
+<div class="title-row"><h1>Voyager, right now</h1><div class="header-actions">
+<button type="button" class="icon-button" id="install-app" aria-label="Install as an app" title="Install as an app" hidden>{_icon(ICON_INSTALL)}</button>
+<a class="icon-button signup-link" href="#subscribe" aria-label="Get updates by email" title="Get updates by email">{_icon(ICON_MAIL)}</a>
+<button type="button" class="icon-button js-only" id="push-toggle" data-key="{push_key}" aria-pressed="false"{" hidden" if not push_key else ""}>{_icon(ICON_BELL, "bell-off")}{_icon(ICON_BELL_ON, "bell-on")}</button>
+<button type="button" class="icon-button js-only" id="theme-toggle">{_icon(ICON_MOON, "moon")}{_icon(ICON_SUN, "sun")}</button>
+</div></div>
 <p>The two farthest spacecraft ever launched are still talking to us.</p>
-<a class="signup-link" href="#subscribe">Get these updates by email</a>
+<p class="notice" id="notice" role="status"></p>
 </header>
 <section class="content">{body}</section>
 <form class="subscribe" id="subscribe">
-<label for="email"><strong>Get these updates by email.</strong> One each time a Voyager travels another light-minute, about one a week.</label>
+<label for="email">Email updates, about one a week</label>
 <div class="fields">
 <input type="email" id="email" name="email" required autocomplete="email" placeholder="you@example.com">
 <input class="trap" type="text" name="company" tabindex="-1" autocomplete="off" aria-hidden="true">
-<button type="submit">Subscribe</button>
+<button type="submit" aria-label="Subscribe" title="Subscribe">{_icon(ICON_SEND)}</button>
 </div>
 <p class="message" id="message" role="status"></p>
 <noscript><p class="message">Subscribing needs JavaScript turned on.</p></noscript>
@@ -939,12 +1115,12 @@ try {{
 </main>
 <div id="journey" class="journey" hidden>
 <canvas id="journey-canvas" role="img" aria-label="Animation of Voyager 1 and Voyager 2 travelling from Earth past the planets, from 1977 to today. Real paths and planet positions from NASA JPL, seen from above, with distances compressed."></canvas>
-<div class="journey-readout" id="journey-readout"><div id="journey-date"></div><div id="journey-caption" aria-live="polite"></div></div>
+<div class="journey-readout" id="journey-readout"><div id="journey-date"><span id="journey-year"></span><span id="journey-month"></span></div><div id="journey-caption" aria-live="polite"></div></div>
 </div>
 <div class="journey-controls" id="journey-controls" hidden>
-<button type="button" class="journey-button" id="journey-play">Play</button>
+<button type="button" class="journey-button" id="journey-play" data-state="play" aria-label="Play">{_icon(ICON_PLAY, "play")}{_icon(ICON_PAUSE, "pause")}{_icon(ICON_REPLAY, "replay")}</button>
 <input type="range" id="journey-scrub" min="0" max="1000" value="0" aria-label="Move through time">
-<button type="button" class="journey-button" id="journey-close" aria-label="Back to today's map">&#10005;</button>
+<button type="button" class="journey-button" id="journey-close" aria-label="Back to today's map" title="Back to today's map">{_icon(ICON_CLOSE)}</button>
 </div>
 <script id="latest-data" type="application/json">{latest}</script>
 <script>{SCRIPT}</script>
