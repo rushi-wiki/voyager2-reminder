@@ -175,7 +175,6 @@ def render_map(active_name, active_position, active_color, twin_name=None, twin_
     draw.ellipse((sun_x - earth, sun_y - earth, sun_x + earth, sun_y + earth), outline=(70, 110, 150), width=SCALE)
     _sun(image, sun_x, sun_y)
     draw = ImageDraw.Draw(image)
-    draw.text((sun_x, sun_y + earth + 6 * SCALE), "Sun and Earth", fill=LABEL, font=_font(21), anchor="mt")
 
     for name, color, size in PLANETS:
         x_au, y_au = _planet_position(name)
@@ -185,7 +184,8 @@ def render_map(active_name, active_position, active_color, twin_name=None, twin_
         y = sun_y - radius * math.sin(angle)
         dot = size * 1.5 * SCALE
         draw.ellipse((x - dot, y - dot, x + dot, y + dot), fill=color)
-        if name != "Earth":
+        # A planet out of frame gets no label, or a stray letter would show at the edge
+        if 0 <= x <= WIDTH * SCALE and 0 <= y <= HEIGHT * SCALE:
             draw.text((x + dot + 3 * SCALE, y), name, fill=LABEL, font=_font(21), anchor="lm")
 
     if twin:

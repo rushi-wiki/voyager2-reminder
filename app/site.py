@@ -338,7 +338,7 @@ p, h1, h2, h3, figure { margin: 0; }
 .title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .icon { display: block; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .header-actions { display: flex; flex: 0 0 auto; gap: 6px; }
-.icon-button { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 9px; cursor: pointer; }
+.icon-button { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; padding: 0; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 9px; cursor: pointer; }
 .icon-button:hover { background: var(--panel); }
 .icon-button:focus-visible { outline: 2px solid var(--voyager-2); outline-offset: 2px; }
 .icon-button[hidden] { display: none; }
@@ -353,7 +353,7 @@ html:not(.js) .js-only { display: none; }
 #push-toggle[aria-pressed="true"] .icon-bell-on { display: block; }
 .notice { margin-top: 6px; font-size: 13px; line-height: 18px; color: var(--soft); }
 .notice:empty { display: none; }
-h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: normal; font-size: 28px; line-height: 34px; }
+h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: normal; font-size: 22px; line-height: 28px; white-space: nowrap; }
 .intro p { margin-top: 3px; color: var(--soft); font-size: 14px; line-height: 20px; }
 .content { grid-area: content; min-width: 0; }
 
@@ -462,6 +462,7 @@ html:not(.js) .map-band { display: none; }
     align-items: center;
   }
   .signup-link { display: none; }
+  h1 { font-size: 28px; line-height: 34px; }
   .toolbar { margin-bottom: 14px; }
   .tabs { flex: 0 0 360px; }
   .panel { gap: 14px; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); align-items: stretch; }
@@ -727,9 +728,6 @@ function draw() {
   c.textAlign = 'right';
   c.fillStyle = 'rgba(205, 188, 240, 0.95)';
   c.fillText("Edge of the Sun's influence", originX + ring(120) - 10 * s, originY + small / 3);
-  c.textAlign = 'center';
-  c.fillStyle = 'rgba(222, 226, 245, 0.88)';
-  c.fillText('Sun and Earth', originX, originY + ring(1) + 6 * s + small);
 
   PLANETS.forEach(([, au]) => {
     c.strokeStyle = 'rgba(134, 146, 196, 0.42)';
@@ -765,7 +763,8 @@ function draw() {
     c.fill();
     c.fillStyle = 'rgba(222, 226, 245, 0.88)';
     c.font = `${small}px "Segoe UI", Roboto, Arial, sans-serif`;
-    if (name !== 'Earth' && !crowded) c.fillText(name, x + dot + 3, y + small / 3);
+    const inFrame = x >= 0 && x <= width && y >= 0 && y <= height;
+    if (inFrame && !crowded) c.fillText(name, x + dot + 3, y + small / 3);
   });
 
   CRAFT.forEach(([key, name, color]) => {
