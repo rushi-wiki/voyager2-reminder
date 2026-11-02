@@ -108,3 +108,16 @@ def get_dsn_contact(spacecraft):
     except (requests.RequestException, ET.ParseError, ValueError) as e:
         print(f"DSN lookup failed: {e}")
         return None
+
+def get_dsn_contacts():
+    """Live contact for every spacecraft from one request, or None if the feed fails."""
+    try:
+        response = requests.get(DSN_URL, timeout=REQUEST_TIMEOUT_S)
+        response.raise_for_status()
+        return {
+            key: parse_dsn_contact(response.content, spacecraft["dsn_code"])
+            for key, spacecraft in SPACECRAFT.items()
+        }
+    except (requests.RequestException, ET.ParseError, ValueError) as e:
+        print(f"DSN lookup failed: {e}")
+        return None

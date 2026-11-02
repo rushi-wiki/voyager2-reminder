@@ -62,6 +62,17 @@ class UserIn(BaseModel):
 def home():
     return site.render_page()
 
+@app.get("/api/latest")
+def latest():
+    data = site.latest_data()
+    if not data:
+        raise HTTPException(status_code=503, detail="NASA data is out of reach right now")
+    return data
+
+@app.get("/trajectories.json")
+def trajectories():
+    return FileResponse(site.TRAJECTORIES, media_type="application/json", headers={"Cache-Control": "public, max-age=86400"})
+
 @app.get("/images/map/{spacecraft}.jpg")
 def map_image(spacecraft: str):
     image = site.get_map(spacecraft) if spacecraft in SPACECRAFT else None

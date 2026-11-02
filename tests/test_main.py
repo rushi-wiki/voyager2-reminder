@@ -1,5 +1,6 @@
 import os
 import tempfile
+from datetime import date
 
 import pytest
 
@@ -391,7 +392,7 @@ def page_data(monkeypatch):
     positions = {"voyager_1": position(1432.5, earth_km=LIGHT_DAY_KM * 0.998), "voyager_2": position(1200.5)}
     monkeypatch.setattr(site, "_snapshot", None)
     monkeypatch.setattr(site, "get_position", lambda key: positions[key])
-    monkeypatch.setattr(site, "get_dsn_contact", lambda key: None)
+    monkeypatch.setattr(site, "get_dsn_contacts", lambda: {})
     return site
 
 
@@ -517,10 +518,85 @@ def test_page_uses_tabs_with_one_spacecraft_showing_first(page_data):
 
 def test_page_has_a_live_distance_counter_for_each_spacecraft(page_data):
     html = client.get("/").text
-    assert html.count('class="odometer-value"') == 2
+    assert html.count('data-field="odometer"') == 2
     assert "km from Earth, growing by 31.5 km every second" in html
 
 
 def test_counter_says_when_the_gap_is_shrinking(page_data, monkeypatch):
     monkeypatch.setattr(page_data, "get_position", lambda key: position(1432.5, earth_km_s=-8.2))
     assert "km from Earth, shrinking by 8.2 km every second" in client.get("/").text
+
+
+def test_latest_data_lets_an_open_page_stay_current(page_data):
+    data = client.get("/api/latest").json()
+    assert set(data["craft"]) == {"voyager_1", "voyager_2"}
+    craft = data["craft"]["voyager_1"]
+    assert craft["count"] == 1432
+    assert craft["next"].startswith("Next email at light-minute 1,433")
+    assert craft["next"].endswith("The numbers here stay live.")
+    assert "Next email at light-minute 1,433" in client.get("/").text
+
+
+def test_latest_data_reports_an_outage(monkeypatch):
+    from app import site
+
+    monkeypatch.setattr(site, "_snapshot", None)
+    monkeypatch.setattr(site, "get_position", lambda key: None)
+    assert client.get("/api/latest").status_code == 503
+
+
+def test_dish_feed_refreshes_more_often_than_positions(page_data, monkeypatch):
+    client.get("/")
+    calls = []
+    monkeypatch.setattr(page_data, "get_dsn_contacts", lambda: calls.append(1) or {"voyager_1": {"station": "Madrid", "dish": "DSS63", "rate_bps": 160.0}})
+    page_data._refresh_lock.acquire()
+    page_data._refresh_in_background(page_data._refresh_contacts)
+    assert calls == [1]
+    assert "Madrid" in client.get("/api/latest").json()["craft"]["voyager_1"]["heard"]
+
+
+def test_a_failed_dish_lookup_keeps_what_we_knew(page_data, monkeypatch):
+    client.get("/")
+    monkeypatch.setattr(page_data, "get_dsn_contacts", lambda: {"voyager_1": {"station": "Madrid", "dish": "DSS63", "rate_bps": 160.0}})
+    page_data._refresh_contacts()
+    monkeypatch.setattr(page_data, "get_dsn_contacts", lambda: None)
+    page_data._refresh_contacts()
+    assert "Madrid" in client.get("/api/latest").json()["craft"]["voyager_1"]["heard"]
+
+
+def test_real_trajectories_are_served_and_match_history():
+    import math
+
+    response = client.get("/trajectories.json")
+    assert response.status_code == 200
+    bodies = response.json()["bodies"]
+    assert set(bodies) == {"voyager_1", "voyager_2", "Earth", "Jupiter", "Saturn", "Uranus", "Neptune"}
+
+    def at(body, day):
+        i = next(n for n, t in enumerate(body["t"]) if t >= day)
+        return body["x"][i], body["y"][i]
+
+    # Voyager 2 met Neptune in August 1989, and Voyager 1 is past 170 AU by now
+    flyby = (date(1989, 8, 25) - date(1977, 8, 20)).days
+    assert math.dist(at(bodies["voyager_2"], flyby), at(bodies["Neptune"], flyby)) < 0.5
+    now = (date(2026, 11, 2) - date(1977, 8, 20)).days
+    assert 171 < math.hypot(*at(bodies["voyager_1"], now)) < 174
+
+
+def test_page_offers_the_journey_without_loading_it_up_front(page_data):
+    html = client.get("/").text
+    assert 'id="journey"' in html
+    assert html.count("Watch the real journey") == 2
+    assert "voyager_1" in html and '"t":[' not in html
+
+
+def test_page_script_has_valid_syntax():
+    import shutil
+    import subprocess
+
+    from app import site
+
+    if not shutil.which("node"):
+        pytest.skip("Node.js isn't available")
+    result = subprocess.run(["node", "--check", "-"], input=site.SCRIPT, capture_output=True, text=True, encoding="utf-8")
+    assert result.returncode == 0, result.stderr
