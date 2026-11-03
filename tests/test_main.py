@@ -884,3 +884,16 @@ def test_notification_problem_reports_are_limited(capsys):
     for _ in range(main.PROBLEM_REPORTS_PER_IP_PER_HOUR + 5):
         client.post("/push/problem", json={"stage": "x"}, headers={"fly-client-ip": "203.0.113.77"})
     assert capsys.readouterr().out.count("Push problem") == main.PROBLEM_REPORTS_PER_IP_PER_HOUR
+
+
+def test_resending_a_known_subscription_is_quiet_and_unlimited(db, push_on):
+    from app import models
+
+    assert client.post("/push/subscribe", json=PUSH_BODY).status_code == 201
+    assert len(push_on) == 1
+    # Every page visit re-sends it, which must not alert again or hit the sign-up limit
+    for _ in range(main.SIGNUPS_PER_IP_PER_HOUR + 3):
+        assert client.post("/push/subscribe", json=PUSH_BODY).status_code == 201
+    assert len(push_on) == 1
+    db.expire_all()
+    assert db.query(models.PushSubscription).count() == 1

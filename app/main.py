@@ -101,23 +101,26 @@ def push_subscribe(subscription: PushIn, request: Request):
         raise HTTPException(status_code=503, detail="Notifications aren't available right now.")
     if not push.is_allowed_endpoint(subscription.endpoint):
         raise HTTPException(status_code=400, detail="That browser's notification service isn't supported.")
-    ip = request.headers.get("fly-client-ip") or (request.client.host if request.client else "unknown")
-    if not _allow_signup(ip):
-        raise HTTPException(status_code=429, detail="Too many sign-ups right now. Try again later.")
-
     db: Session = database.SessionLocal()
     try:
         saved = db.query(models.PushSubscription).filter_by(endpoint=subscription.endpoint).first()
         if saved:
+            # Pages re-send their subscription on every visit, so a known one is
+            # just refreshed, without counting as a sign-up or alerting again
             saved.p256dh = subscription.keys.p256dh
             saved.auth = subscription.keys.auth
-        else:
-            saved = models.PushSubscription(
-                endpoint=subscription.endpoint,
-                p256dh=subscription.keys.p256dh,
-                auth=subscription.keys.auth,
-            )
-            db.add(saved)
+            db.commit()
+            return {"message": "Notifications are on."}
+
+        ip = request.headers.get("fly-client-ip") or (request.client.host if request.client else "unknown")
+        if not _allow_signup(ip):
+            raise HTTPException(status_code=429, detail="Too many sign-ups right now. Try again later.")
+        saved = models.PushSubscription(
+            endpoint=subscription.endpoint,
+            p256dh=subscription.keys.p256dh,
+            auth=subscription.keys.auth,
+        )
+        db.add(saved)
         db.commit()
         # A real one straight away, so people know it works
         try:

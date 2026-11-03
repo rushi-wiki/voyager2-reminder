@@ -1054,7 +1054,18 @@ pushToggle.addEventListener('click', togglePush);
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').then(async (registration) => {
     worker = registration;
-    if (registration.pushManager) showPushState(Boolean(await registration.pushManager.getSubscription()));
+    if (!registration.pushManager) return;
+    const existing = await registration.pushManager.getSubscription();
+    showPushState(Boolean(existing));
+    // If the server never heard about this browser, as can happen when the page
+    // closes mid-way through turning notifications on, tell it now
+    if (existing && pushKey) {
+      fetch('/push/subscribe', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(existing)})
+        .then((response) => {
+          if (!response.ok) pushProblem('resync', 'Notifications need turning on again. Tap the bell twice.', response.status);
+        })
+        .catch(() => {});
+    }
   }).catch(() => {});
 }
 
