@@ -31,6 +31,28 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+# Standard browser protections. The page's own script and styles are inline,
+# so those are allowed, but nothing may load from or post to anywhere else.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; "
+        "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    ),
+    "Strict-Transport-Security": "max-age=31536000",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+}
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
 CHECK_INBOX = "Check your inbox to confirm your subscription."
 
 # A public form that sends email needs limits, or anyone could use it to send
@@ -193,28 +215,44 @@ def register(user: UserIn, request: Request):
     return {"message": CHECK_INBOX}
 
 
+INVALID_LINK = "<p>This confirmation link is no longer valid.</p>"
+
 @app.get("/verify", response_class=HTMLResponse)
+def verify_page(token: str):
+    # Opening the link only shows a button. Mail scanners open links in emails
+    # automatically, so confirming on open would subscribe people who never asked.
+    db: Session = database.SessionLocal()
+    try:
+        user = db.query(models.User).filter_by(verify_token=token).first()
+    finally:
+        db.close()
+    if not user:
+        return _page("Invalid or expired link", INVALID_LINK, status_code=400)
+    return _page(
+        "Confirm your subscription",
+        f"""<p>Get Voyager updates at {escape(user.email)}?</p>
+        <form method="post" action="/verify?token={escape(token)}">
+            <button type="submit" style="padding:12px 28px;border:0;border-radius:999px;background:#667eea;color:#fff;font-size:16px;cursor:pointer;">Confirm</button>
+        </form>""",
+    )
+
+@app.post("/verify", response_class=HTMLResponse)
 def verify(token: str):
     db: Session = database.SessionLocal()
-    user = db.query(models.User).filter_by(verify_token=token).first()
-    if not user:
-        return HTMLResponse(
-            """<html><body style="font-family:sans-serif;text-align:center;padding:60px 20px;background:#0a0a0a;color:#fff;">
-            <h1>Invalid or expired link</h1>
-            <p>This confirmation link is no longer valid.</p>
-            </body></html>""",
-            status_code=400,
-        )
-    user.verified = True
-    user.verify_token = None
-    models.subscribe_to_all(user)
-    db.commit()
-    return HTMLResponse(
-        f"""<html><body style="font-family:sans-serif;text-align:center;padding:60px 20px;background:#0a0a0a;color:#fff;">
-        <div style="font-size:60px">🚀</div>
-        <h1 style="font-weight:300">You're confirmed</h1>
-        <p>You'll get an email each time Voyager 1 or Voyager 2 moves another {user.unit.replace('_', ' ')}.</p>
-        </body></html>"""
+    try:
+        user = db.query(models.User).filter_by(verify_token=token).first()
+        if not user:
+            return _page("Invalid or expired link", INVALID_LINK, status_code=400)
+        user.verified = True
+        user.verify_token = None
+        models.subscribe_to_all(user)
+        db.commit()
+        unit = user.unit.replace("_", " ")
+    finally:
+        db.close()
+    return _page(
+        "You're confirmed",
+        f"<p>You'll get an email each time Voyager 1 or Voyager 2 moves another {escape(unit)}.</p>",
     )
 
 def _page(title, body, status_code=200):

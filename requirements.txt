@@ -1,10 +1,12 @@
-fastapi
-uvicorn
-sqlalchemy
-python-dotenv
-apscheduler
-email-validator
-aiofiles
-requests
-pillow
-pywebpush
+# Pinned to the versions the tests last passed with, so a deploy can't pick up
+# a surprise update. Raise them deliberately, and run the tests after.
+fastapi==0.162.0
+uvicorn==0.54.0
+sqlalchemy==2.1.6
+python-dotenv==1.2.4
+apscheduler==3.11.3
+email-validator==2.3.0
+aiofiles==25.1.0
+requests==2.34.2
+pillow==13.0.0
+pywebpush==2.5.0

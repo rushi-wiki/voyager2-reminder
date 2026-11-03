@@ -219,8 +219,14 @@ def test_register_verify_and_unsubscribe(db, monkeypatch):
     response = client.post("/register", json={"email": "new@example.com", "unit": "light_minute"})
     assert response.status_code == 202
     token = links[0].split("token=")[1]
-    assert client.get(f"/verify?token={token}").status_code == 200
+    # Opening the link alone must not subscribe anyone
+    page = client.get(f"/verify?token={token}")
+    assert page.status_code == 200
+    assert 'method="post"' in page.text
+    db.expire_all()
+    assert db.query(User).filter_by(email="new@example.com").one().verified is False
 
+    assert client.post(f"/verify?token={token}").status_code == 200
     db.expire_all()
     user = db.query(User).filter_by(email="new@example.com").one()
     assert sorted(s.spacecraft for s in user.subscriptions) == ["voyager_1", "voyager_2"]
@@ -833,3 +839,26 @@ def test_map_picture_uses_the_animations_planets():
 
     x, y = visuals._planet_position("Neptune")
     assert 29 < (x * x + y * y) ** 0.5 < 31
+
+
+def test_bad_confirmation_links_are_refused(db):
+    assert client.get("/verify?token=nope").status_code == 400
+    assert client.post("/verify?token=nope").status_code == 400
+
+
+def test_responses_carry_security_headers(page_data):
+    response = client.get("/")
+    csp = response.headers["content-security-policy"]
+    assert "frame-ancestors 'none'" in csp
+    assert "object-src 'none'" in csp
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["strict-transport-security"].startswith("max-age=")
+    assert "content-security-policy" in client.get("/api/latest").headers
+
+
+def test_requirements_are_pinned():
+    from pathlib import Path
+
+    lines = [line for line in Path("requirements.txt").read_text().splitlines() if line and not line.startswith("#")]
+    assert lines and all("==" in line for line in lines)
