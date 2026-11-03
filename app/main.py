@@ -131,6 +131,40 @@ def push_subscribe(subscription: PushIn, request: Request):
         db.close()
     return {"message": "Notifications are on."}
 
+class PushProblem(BaseModel):
+    stage: str = ""
+    detail: str = ""
+    permission: str = ""
+    standalone: bool = False
+    worker: bool = False
+    push_manager: bool = False
+
+PROBLEM_REPORTS_PER_IP_PER_HOUR = 10
+_problem_reports = defaultdict(deque)
+
+def _clean(text, limit=120):
+    # Only plain characters reach the log, so a report can't forge log lines
+    return "".join(c for c in text[:limit] if c.isalnum() or c in " :._-()'")
+
+@app.post("/push/problem", status_code=204)
+def push_problem(problem: PushProblem, request: Request):
+    """Logs why a browser couldn't turn notifications on. Nothing personal is kept."""
+    ip = request.headers.get("fly-client-ip") or (request.client.host if request.client else "unknown")
+    now = time.time()
+    reports = _problem_reports[ip]
+    while reports and now - reports[0] > 3600:
+        reports.popleft()
+    if len(reports) < PROBLEM_REPORTS_PER_IP_PER_HOUR:
+        reports.append(now)
+        agent = request.headers.get("user-agent", "")
+        browser = "Android Chrome" if "Android" in agent and "Chrome" in agent else ("iPhone" if "iPhone" in agent else "other")
+        print(
+            f"Push problem: stage={_clean(problem.stage, 20)} detail={_clean(problem.detail)} "
+            f"permission={_clean(problem.permission, 12)} standalone={problem.standalone} "
+            f"worker={problem.worker} push_manager={problem.push_manager} browser={browser}"
+        )
+    return Response(status_code=204)
+
 @app.post("/push/unsubscribe")
 def push_unsubscribe(subscription: PushOut):
     db: Session = database.SessionLocal()

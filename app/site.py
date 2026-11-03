@@ -351,7 +351,7 @@ html:not(.js) .js-only { display: none; }
 #push-toggle[aria-pressed="true"] { color: var(--voyager-2); }
 #push-toggle[aria-pressed="true"] .icon-bell-off { display: none; }
 #push-toggle[aria-pressed="true"] .icon-bell-on { display: block; }
-.notice { margin-top: 6px; font-size: 13px; line-height: 18px; color: var(--soft); }
+.notice { margin-top: 8px; padding: 9px 12px; font-size: 13px; line-height: 18px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 9px; }
 .notice:empty { display: none; }
 h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: normal; font-size: 22px; line-height: 28px; white-space: nowrap; }
 .intro p { margin-top: 3px; color: var(--soft); font-size: 14px; line-height: 20px; }
@@ -984,39 +984,68 @@ function keyBytes(key) {
   const text = atob((key + '='.repeat((4 - key.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
   return Uint8Array.from(text, (character) => character.charCodeAt(0));
 }
+// Say which step went wrong, on screen and to the server's log, so problems can be
+// fixed. Only the step and the browser's error name are sent, nothing personal.
+function pushProblem(stage, message, detail) {
+  notice.textContent = message;
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || Boolean(navigator.standalone);
+  fetch('/push/problem', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      stage,
+      detail: String(detail || ''),
+      permission: 'Notification' in window ? Notification.permission : 'missing',
+      standalone,
+      worker: Boolean(worker),
+      push_manager: 'PushManager' in window,
+    }),
+  }).catch(() => {});
+}
 async function togglePush() {
   notice.textContent = '';
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
-  if (!('PushManager' in window) || !worker) {
-    notice.textContent = /iPhone|iPad/.test(navigator.userAgent) && !standalone
+  if (!('PushManager' in window) || !('Notification' in window)) {
+    return pushProblem('unsupported', /iPhone|iPad/.test(navigator.userAgent) && !standalone
       ? 'On iPhone, first add this page to your Home Screen, then open it from there.'
-      : "This browser doesn't support notifications.";
-    return;
+      : "This browser can't show notifications. If you opened this page from another app, open it in Chrome instead.");
+  }
+  if (!worker) {
+    return pushProblem('no-worker', 'The app is still starting. Wait a moment and tap the bell again.');
   }
   pushToggle.disabled = true;
+  let stage = 'existing';
   try {
     const existing = await worker.pushManager.getSubscription();
     if (existing) {
+      stage = 'unsubscribe';
       await fetch('/push/unsubscribe', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({endpoint: existing.endpoint})});
       await existing.unsubscribe();
       showPushState(false);
-    } else {
-      if (await Notification.requestPermission() !== 'granted') {
-        notice.textContent = 'Notifications are blocked. You can allow them in your browser settings.';
-        return;
-      }
-      const subscription = await worker.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: keyBytes(pushKey)});
-      const response = await fetch('/push/subscribe', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(subscription)});
-      if (!response.ok) {
-        await subscription.unsubscribe();
-        const data = await response.json().catch(() => ({}));
-        notice.textContent = data.detail || 'That did not work. Try again in a moment.';
-        return;
-      }
-      showPushState(true);
+      notice.textContent = 'Notifications are off.';
+      return;
     }
+    stage = 'permission';
+    const permission = await Notification.requestPermission();
+    if (permission === 'denied') {
+      return pushProblem('denied', 'Notifications are blocked for this site. Allow them in Chrome under Site settings, then tap the bell again.', permission);
+    }
+    if (permission !== 'granted') {
+      return pushProblem('dismissed', "Chrome didn't ask, or the question was closed. Tap the bell again, or allow notifications in Site settings.", permission);
+    }
+    stage = 'subscribe';
+    const subscription = await worker.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: keyBytes(pushKey)});
+    stage = 'server';
+    const response = await fetch('/push/subscribe', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(subscription)});
+    if (!response.ok) {
+      await subscription.unsubscribe();
+      const data = await response.json().catch(() => ({}));
+      return pushProblem('server', data.detail || 'That did not work. Try again in a moment.', response.status);
+    }
+    showPushState(true);
+    notice.textContent = 'Notifications are on. A test alert is on its way.';
   } catch (error) {
-    notice.textContent = 'That did not work. Try again in a moment.';
+    pushProblem(stage, `Chrome couldn't set up notifications (${error.name}). Try again in a moment.`, `${error.name}: ${error.message}`);
   } finally {
     pushToggle.disabled = false;
   }

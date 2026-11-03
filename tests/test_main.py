@@ -862,3 +862,25 @@ def test_requirements_are_pinned():
 
     lines = [line for line in Path("requirements.txt").read_text().splitlines() if line and not line.startswith("#")]
     assert lines and all("==" in line for line in lines)
+
+
+def test_notification_problems_are_logged_safely(capsys):
+    main._problem_reports.clear()
+    response = client.post(
+        "/push/problem",
+        json={"stage": "subscribe", "detail": "AbortError: Registration failed\nFAKE LOG LINE", "permission": "granted"},
+        headers={"user-agent": "Mozilla/5.0 (Linux; Android 14) Chrome/141.0"},
+    )
+    assert response.status_code == 204
+    out = capsys.readouterr().out
+    assert "stage=subscribe" in out
+    assert "AbortError: Registration failed" in out
+    assert "browser=Android Chrome" in out
+    assert "\nFAKE" not in out
+
+
+def test_notification_problem_reports_are_limited(capsys):
+    main._problem_reports.clear()
+    for _ in range(main.PROBLEM_REPORTS_PER_IP_PER_HOUR + 5):
+        client.post("/push/problem", json={"stage": "x"}, headers={"fly-client-ip": "203.0.113.77"})
+    assert capsys.readouterr().out.count("Push problem") == main.PROBLEM_REPORTS_PER_IP_PER_HOUR
