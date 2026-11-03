@@ -831,6 +831,7 @@ def test_real_encryption_works_with_generated_keys(monkeypatch):
     assert url == PUSH_BODY["endpoint"]
     assert headers["content-encoding"] == "aes128gcm"
     assert headers["authorization"].startswith("vapid ")
+    assert headers["urgency"] == "high"
     assert b"Title" not in data
 
 

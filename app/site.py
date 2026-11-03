@@ -45,7 +45,7 @@ MANIFEST = {
 
 # Always prefers fresh data, and falls back to the last copy when offline
 SERVICE_WORKER = """
-const CACHE = 'voyager-v1';
+const CACHE = 'voyager-v2';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
@@ -72,14 +72,34 @@ self.addEventListener('fetch', (event) => {
     }
   })());
 });
+// Tell the server how far an alert got on this device, with nothing personal
+function report(stage, detail) {
+  return fetch('/push/problem', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({stage, detail: String(detail || ''), worker: true, push_manager: true}),
+  }).catch(() => {});
+}
 self.addEventListener('push', (event) => {
-  const data = event.data ? event.data.json() : {};
-  event.waitUntil(self.registration.showNotification(data.title || 'Voyager', {
-    body: data.body || '',
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
-    data: {url: data.url || '/'},
-  }));
+  event.waitUntil((async () => {
+    let data = {};
+    try {
+      data = event.data ? event.data.json() : {};
+    } catch (error) {
+      // Still show something, so an unreadable message isn't silently lost
+      await report('unreadable', error.name);
+    }
+    try {
+      await self.registration.showNotification(data.title || 'Voyager', {
+        body: data.body || '',
+        icon: '/icons/icon-192.png',
+        data: {url: data.url || '/'},
+      });
+      await report('shown', '');
+    } catch (error) {
+      await report('show-failed', `${error.name}: ${error.message}`);
+    }
+  })());
 });
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();

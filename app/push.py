@@ -35,8 +35,9 @@ def send(subscription, title, body):
     # Loaded only when sending, since this library is large for a small machine
     from pywebpush import WebPushException, webpush
 
+    service = urlparse(subscription.endpoint).hostname
     try:
-        webpush(
+        response = webpush(
             subscription_info={
                 "endpoint": subscription.endpoint,
                 "keys": {"p256dh": subscription.p256dh, "auth": subscription.auth},
@@ -46,12 +47,16 @@ def send(subscription, title, body):
             vapid_claims={"sub": APP_BASE_URL},
             ttl=86400,
             timeout=20,
+            # Android can hold back normal-priority messages for a long while
+            headers={"Urgency": "high"},
         )
+        print(f"Notification sent: service={service} status={getattr(response, 'status_code', None)}")
     except WebPushException as e:
         status = e.response.status_code if e.response is not None else None
         if status in (404, 410):
+            print(f"Notification address gone: service={service} status={status}")
             return False
-        print(f"Notification failed with status {status}")
+        print(f"Notification failed: service={service} status={status}")
     return True
 
 def _signal_text(earth_km):
