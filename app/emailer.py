@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 from email.mime.image import MIMEImage
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from email.utils import make_msgid
+from email.utils import formataddr, make_msgid
 from html import escape
 from dotenv import load_dotenv
 import os
@@ -20,6 +20,11 @@ SMTP_PORT = int(os.getenv("SMTP_PORT") or 587)
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 FROM_EMAIL = os.getenv("FROM_EMAIL")
+# The name inboxes show beside the address, in place of the address's own name
+FROM_NAME = os.getenv("FROM_NAME", "Voyager, right now")
+
+def _sender():
+    return formataddr((FROM_NAME, FROM_EMAIL)) if FROM_EMAIL else None
 
 # Public base URL of this service, used to build links in emails.
 APP_BASE_URL = os.getenv("APP_BASE_URL", "https://voyager2-reminder.fly.dev").rstrip("/")
@@ -386,7 +391,7 @@ def send_verification_email(to_email, verify_url):
     """Send a confirmation email with a one-click verify link."""
     msg = MIMEMultipart("alternative")
     msg["Subject"] = "Confirm your Voyager subscription"
-    msg["From"] = FROM_EMAIL
+    msg["From"] = _sender()
     msg["To"] = to_email
 
     html = f"""<!DOCTYPE html>
@@ -434,7 +439,7 @@ def send_update(to_email, update, unsubscribe_url=None):
     # related holds the images that the HTML part refers to by Content-ID
     msg = MIMEMultipart("related")
     msg["Subject"] = update["subject"]
-    msg["From"] = FROM_EMAIL
+    msg["From"] = _sender()
     msg["To"] = to_email
     # Each update stands alone. Unique IDs, with no reply headers, discourage
     # mail clients from stacking updates into one conversation.

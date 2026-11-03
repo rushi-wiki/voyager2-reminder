@@ -898,3 +898,32 @@ def test_resending_a_known_subscription_is_quiet_and_unlimited(db, push_on):
     assert len(push_on) == 1
     db.expire_all()
     assert db.query(models.PushSubscription).count() == 1
+
+
+def test_emails_come_from_a_friendly_name(monkeypatch):
+    captured = []
+
+    class FakeSMTP:
+        def __init__(self, host, port):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def starttls(self):
+            pass
+
+        def login(self, user, password):
+            pass
+
+        def send_message(self, msg):
+            captured.append(msg)
+
+    monkeypatch.setattr(emailer.smtplib, "SMTP", FakeSMTP)
+    monkeypatch.setattr(emailer, "FROM_EMAIL", "sender@example.com")
+    send_update("a@example.com", build_update("voyager_1", "light_minute", position(1432.5)))
+    emailer.send_verification_email("a@example.com", "https://example.com/verify?token=x")
+    assert [m["From"] for m in captured] == ['"Voyager, right now" <sender@example.com>'] * 2
